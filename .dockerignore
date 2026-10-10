@@ -1,0 +1,6 @@
+data/
+docs/
+*.db
+*.db-shm
+*.db-wal
+src/reservation.env

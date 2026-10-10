@@ -13,6 +13,7 @@
  *
  * 配置（环境变量）：
  *   PORT               监听端口，默认 8787
+ *   HOST               监听地址，默认 127.0.0.1（Docker 容器内设为 0.0.0.0）
  *   DB_PATH            SQLite 文件路径，默认 ./reservations.db
  *   ADMIN_USER         后台用户名，默认 admin
  *   ADMIN_PASS         后台密码（必填，不设置则 /admin 直接拒绝访问）
@@ -26,6 +27,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 // ==================== 配置 ====================
 const PORT = Number(process.env.PORT || 8787);
+const HOST = process.env.HOST || '127.0.0.1';
 const DB_PATH = process.env.DB_PATH || './reservations.db';
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
@@ -457,8 +459,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log('reservation server listening on 127.0.0.1:' + PORT);
+server.listen(PORT, HOST, () => {
+  console.log('reservation server listening on ' + HOST + ':' + PORT);
   console.log('  DB_PATH=' + DB_PATH);
   console.log('  admin ' + (ADMIN_PASS ? 'enabled (user=' + ADMIN_USER + ')' : 'DISABLED: set ADMIN_PASS to enable'));
   console.log('  wecom notify ' + (WECOM_WEBHOOK_URL ? 'enabled' : 'disabled'));

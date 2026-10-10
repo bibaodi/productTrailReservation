@@ -24,6 +24,8 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const { csvCell, escapeHTML } = require('./safe-output');
+const { DEPARTMENTS, validateInput } = require('./reservation-validation');
 
 // ==================== 配置 ====================
 const PORT = Number(process.env.PORT || 8787);
@@ -36,11 +38,6 @@ const WECOM_WEBHOOK_URL = process.env.WECOM_WEBHOOK_URL || '';
 const MAX_BODY_BYTES = 64 * 1024;     // 请求体上限
 const RATE_LIMIT = 10;                // 每 IP 每 RATE_WINDOW 最多提交次数
 const RATE_WINDOW_MS = 3600 * 1000;
-
-// 科室下拉列表（按需增删）
-const DEPARTMENTS = [
-  '超声科', '妇产科', '体检中心', '外科', '内科', '其他',
-];
 
 // ==================== 数据库 ====================
 const db = new DatabaseSync(DB_PATH);
@@ -64,13 +61,6 @@ const listStmt = db.prepare('SELECT * FROM trialreservations ORDER BY id DESC LI
 const countStmt = db.prepare('SELECT COUNT(*) AS n FROM trialreservations');
 
 // ==================== 工具函数 ====================
-function esc(s) {
-  return String(s == null ? '' : s)
-    .replaceAll('&', '&amp;').replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;').replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 function sendText(res, status, body, headers = {}) {
   const buf = Buffer.from(body);
   res.writeHead(status, {
@@ -96,17 +86,25 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let settled = false;
     req.on('data', (c) => {
+      if (settled) return;
       size += c.length;
       if (size > MAX_BODY_BYTES) {
+        settled = true;
+        chunks.length = 0;
         reject(Object.assign(new Error('body too large'), { statusCode: 413 }));
-        req.destroy();
+        req.resume();
         return;
       }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      if (!settled) resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', (error) => {
+      if (!settled) reject(error);
+    });
   });
 }
 
@@ -138,29 +136,6 @@ setInterval(() => { // 定时清理，防止 Map 无限增长
   }
 }, 10 * 60 * 1000).unref();
 
-// ==================== 表单校验 ====================
-function validPhone(p) {
-  if (!/^[\d+\-\s()（）]{5,20}$/.test(p)) return false;
-  return (p.match(/\d/g) || []).length >= 5;
-}
-
-function validateInput(body) {
-  const hospital = String(body.hospital || '').trim();
-  const department = String(body.department || '').trim();
-  const name = String(body.name || '').trim();
-  const phone = String(body.phone || '').trim();
-  const note = String(body.note || '').trim();
-
-  if (hospital.length < 2 || hospital.length > 50) return { err: '请填写医院名称（2-50 字）' };
-  if (!department) return { err: '请选择科室' };
-  if (!DEPARTMENTS.includes(department)) return { err: '科室不在可选列表内' };
-  if (name.length < 2 || name.length > 30) return { err: '请填写姓名（2-30 字）' };
-  if (!validPhone(phone)) return { err: '联系电话格式不正确' };
-  if (note.length > 500) return { err: '说明/建议请控制在 500 字以内' };
-
-  return { ok: { hospital, department, name, phone, note } };
-}
-
 // ==================== 企业微信通知（可选） ====================
 function notifyWeCom(data) {
   if (!WECOM_WEBHOOK_URL) return;
@@ -185,7 +160,7 @@ function notifyWeCom(data) {
 }
 
 // ==================== 页面：预约表单 ====================
-const deptOptions = DEPARTMENTS.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+const deptOptions = DEPARTMENTS.map((d) => `<option value="${escapeHTML(d)}">${escapeHTML(d)}</option>`).join('');
 
 const FORM_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -238,10 +213,10 @@ const FORM_HTML = `<!DOCTYPE html>
       </select>
 
       <label>您的姓名<span class="req">*</span></label>
-      <input name="name" type="text" maxlength="30" placeholder="请填写姓名">
+      <input name="name" type="text" maxlength="20" placeholder="请填写姓名">
 
       <label>联系电话<span class="req">*</span></label>
-      <input name="phone" type="tel" maxlength="20" placeholder="用于沟通试用安排">
+      <input name="phone" type="tel" maxlength="20" placeholder="请填写手机号">
 
       <label>说明 / 建议</label>
       <textarea name="note" maxlength="500" placeholder="（选填）想试用的产品、场景或特殊需求等"></textarea>
@@ -283,9 +258,13 @@ const FORM_HTML = `<!DOCTYPE html>
       note: form.note.value.trim()
     };
 
-    if (!data.hospital) { showError('请填写医院名称'); return; }
+    if (data.hospital.length <= 2 || data.hospital.length > 50) {
+      showError('请填写医院名称（3-50 字）'); return;
+    }
     if (!data.department) { showError('请选择科室'); return; }
-    if (!data.name) { showError('请填写姓名'); return; }
+    if (data.name.length < 2 || data.name.length > 20) {
+      showError('请填写姓名（2-20 字）'); return;
+    }
     if (!data.phone) { showError('请填写联系电话'); return; }
 
     btn.disabled = true;
@@ -325,12 +304,12 @@ function buildAdminHTML() {
   const trs = rows.map((r) =>
     '<tr>' +
     '<td>' + r.id + '</td>' +
-    '<td>' + esc(r.hospital) + '</td>' +
-    '<td>' + esc(r.department || '—') + '</td>' +
-    '<td>' + esc(r.name) + '</td>' +
-    '<td>' + esc(r.phone) + '</td>' +
-    '<td>' + esc(r.note || '—') + '</td>' +
-    '<td>' + esc(r.created_at) + '</td>' +
+    '<td>' + escapeHTML(r.hospital) + '</td>' +
+    '<td>' + escapeHTML(r.department || '—') + '</td>' +
+    '<td>' + escapeHTML(r.name) + '</td>' +
+    '<td>' + escapeHTML(r.phone) + '</td>' +
+    '<td>' + escapeHTML(r.note || '—') + '</td>' +
+    '<td>' + escapeHTML(r.created_at) + '</td>' +
     '</tr>'
   ).join('');
   return `<!DOCTYPE html>
@@ -394,10 +373,9 @@ function denyAuth(res) {
 function buildCSV() {
   const rows = listStmt.all();
   const header = ['序号', '医院', '科室', '姓名', '电话', '说明/建议', '提交时间'];
-  const q = (v) => '"' + String(v == null ? '' : v).replaceAll('"', '""') + '"';
-  const lines = [header.map(q).join(',')];
+  const lines = [header.map(csvCell).join(',')];
   for (const r of rows) {
-    lines.push([r.id, r.hospital, r.department || '', r.name, r.phone, r.note || '', r.created_at].map(q).join(','));
+    lines.push([r.id, r.hospital, r.department || '', r.name, r.phone, r.note || '', r.created_at].map(csvCell).join(','));
   }
   return '\uFEFF' + lines.join('\r\n'); // BOM 让 Excel 正确识别 UTF-8
 }
@@ -425,7 +403,11 @@ const server = http.createServer(async (req, res) => {
       try {
         body = JSON.parse(await readBody(req));
       } catch (e) {
-        return sendJSON(res, 400, { ok: false, message: '请求格式错误' });
+        const tooLarge = e.statusCode === 413;
+        return sendJSON(res, tooLarge ? 413 : 400, {
+          ok: false,
+          message: tooLarge ? '请求内容过大' : '请求格式错误',
+        });
       }
       const v = validateInput(body);
       if (v.err) return sendJSON(res, 422, { ok: false, message: v.err });

@@ -67,6 +67,14 @@ The application listens on `127.0.0.1:8787` by default and creates
 See [docs/ubuntu-deploy.md](docs/ubuntu-deploy.md) for detailed Ubuntu
 deployment and update instructions.
 
+## Tests
+
+Run the built-in Node.js unit tests from the repository root:
+
+```bash
+node --test
+```
+
 ## Configuration
 
 | Variable | Default | Description |

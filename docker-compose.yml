@@ -1,16 +1,16 @@
-# 放在仓库根目录（与 Dockerfile 同级）
 services:
-  reservation:
-    build: .
-    container_name: reservation
+  trialreservation:
+    image: trialreservation:latest   # 服务器上已有该镜像时直接使用，不触发构建
+    build: .                    # 镜像不存在时（开发机）才按 Dockerfile 构建
+    container_name: trialreservation
     restart: unless-stopped
     # 敏感配置从 env 文件注入，不写死在 compose 里，也不会打进镜像
-    env_file: ./src/reservation.env
+    env_file: ./src/trialreservation.env
     # 容器专属运行配置（同名项覆盖 env_file）
     environment:
       HOST: 0.0.0.0
       PORT: 8787
-      DB_PATH: /data/reservations.db
+      DB_PATH: /data/trialreservations.db
     ports:
       - "127.0.0.1:8787:8787"   # 只暴露给本机，对外仍由 nginx + HTTPS 反代
     volumes:

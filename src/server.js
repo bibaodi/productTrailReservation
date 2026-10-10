@@ -14,7 +14,7 @@
  * 配置（环境变量）：
  *   PORT               监听端口，默认 8787
  *   HOST               监听地址，默认 127.0.0.1（Docker 容器内设为 0.0.0.0）
- *   DB_PATH            SQLite 文件路径，默认 ./reservations.db
+ *   DB_PATH            SQLite 文件路径，默认 ./trialreservations.db
  *   ADMIN_USER         后台用户名，默认 admin
  *   ADMIN_PASS         后台密码（必填，不设置则 /admin 直接拒绝访问）
  *   WECOM_WEBHOOK_URL  企业微信群机器人 Webhook（可选，有新预约时推送到群）
@@ -28,7 +28,7 @@ const { DatabaseSync } = require('node:sqlite');
 // ==================== 配置 ====================
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
-const DB_PATH = process.env.DB_PATH || './reservations.db';
+const DB_PATH = process.env.DB_PATH || './trialreservations.db';
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS || '';
 const WECOM_WEBHOOK_URL = process.env.WECOM_WEBHOOK_URL || '';
@@ -46,7 +46,7 @@ const DEPARTMENTS = [
 const db = new DatabaseSync(DB_PATH);
 db.exec(`
   PRAGMA journal_mode = WAL;
-  CREATE TABLE IF NOT EXISTS reservations (
+  CREATE TABLE IF NOT EXISTS trialreservations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     hospital    TEXT NOT NULL,
     department  TEXT,
@@ -58,10 +58,10 @@ db.exec(`
   );
 `);
 const insertStmt = db.prepare(
-  'INSERT INTO reservations (hospital, department, name, phone, note, user_agent) VALUES (?, ?, ?, ?, ?, ?)'
+  'INSERT INTO trialreservations (hospital, department, name, phone, note, user_agent) VALUES (?, ?, ?, ?, ?, ?)'
 );
-const listStmt = db.prepare('SELECT * FROM reservations ORDER BY id DESC LIMIT 500');
-const countStmt = db.prepare('SELECT COUNT(*) AS n FROM reservations');
+const listStmt = db.prepare('SELECT * FROM trialreservations ORDER BY id DESC LIMIT 500');
+const countStmt = db.prepare('SELECT COUNT(*) AS n FROM trialreservations');
 
 // ==================== 工具函数 ====================
 function esc(s) {
@@ -445,7 +445,7 @@ const server = http.createServer(async (req, res) => {
       const buf = Buffer.from(buildCSV());
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="reservations.csv"',
+        'Content-Disposition': 'attachment; filename="trialreservations.csv"',
         'Content-Length': buf.length,
       });
       return res.end(buf);
@@ -460,7 +460,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log('reservation server listening on ' + HOST + ':' + PORT);
+  console.log('trialreservation server listening on ' + HOST + ':' + PORT);
   console.log('  DB_PATH=' + DB_PATH);
   console.log('  admin ' + (ADMIN_PASS ? 'enabled (user=' + ADMIN_USER + ')' : 'DISABLED: set ADMIN_PASS to enable'));
   console.log('  wecom notify ' + (WECOM_WEBHOOK_URL ? 'enabled' : 'disabled'));

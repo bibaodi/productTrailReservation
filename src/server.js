@@ -270,7 +270,7 @@ const FORM_HTML = `<!DOCTYPE html>
     btn.disabled = true;
     btn.textContent = '提交中…';
 
-    fetch('/api/reserve', {
+    fetch('api/reserve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -334,7 +334,7 @@ function buildAdminHTML() {
 <body>
 <h1>预约管理后台</h1>
 <p class="meta">共 ${count} 条记录（最多显示最近 500 条）</p>
-<a class="export" href="/admin/export.csv">导出 CSV</a>
+<a class="export" href="admin/export.csv">导出 CSV</a>
 <table>
   <thead>
     <tr><th>#</th><th>医院</th><th>科室</th><th>姓名</th><th>电话</th><th>说明/建议</th><th>提交时间</th></tr>

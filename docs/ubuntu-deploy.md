@@ -188,6 +188,21 @@ server {
 }
 ```
 
+如需挂载在子路径（例如 `https://your-domain.com/trialreserve/`），使用带尾部斜杠的 `proxy_pass` 以剥离子路径前缀；应用内的表单提交和 CSV 导出链接使用相对 URL，会自动保留 `/trialreserve/` 前缀：
+
+```nginx
+location = /trialreserve {
+    return 301 /trialreserve/;
+}
+
+location /trialreserve/ {
+    proxy_pass http://127.0.0.1:8787/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
 ```

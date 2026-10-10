@@ -47,15 +47,14 @@ services:
       - ./data:/data
 ```
 
-同时在根目录建一个 `.dockerignore`（防止数据库文件和 env 配置进入构建上下文）：
+根目录的 `.dockerignore` 会将整个仓库加入镜像构建上下文，同时排除数据库、环境配置、Git 元数据和本地依赖，避免把敏感数据打入镜像：
 
 ```
 data/
-docs/
-*.db
-*.db-shm
-*.db-wal
-src/trialreservation.env
+.git/
+node_modules/
+*.db*
+*.env
 ```
 
 ### 4. 启动

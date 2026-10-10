@@ -1,6 +1,5 @@
 data/
-docs/
-*.db
-*.db-shm
-*.db-wal
-src/reservation.env
+.git/
+node_modules/
+*.db*
+*.env

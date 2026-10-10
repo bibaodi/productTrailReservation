@@ -39,9 +39,7 @@ const RATE_WINDOW_MS = 3600 * 1000;
 
 // 科室下拉列表（按需增删）
 const DEPARTMENTS = [
-  '内科', '外科', '妇产科', '儿科', '骨科', '神经科',
-  '眼科', '耳鼻喉科', '口腔科', '皮肤科', '肿瘤科',
-  '急诊科', '麻醉科', '医技科室（影像/检验等）', '行政/采购', '其他',
+  '超声科', '妇产科', '体检中心', '外科', '内科', '其他',
 ];
 
 // ==================== 数据库 ====================
@@ -154,7 +152,8 @@ function validateInput(body) {
   const note = String(body.note || '').trim();
 
   if (hospital.length < 2 || hospital.length > 50) return { err: '请填写医院名称（2-50 字）' };
-  if (department && !DEPARTMENTS.includes(department)) return { err: '科室不在可选列表内' };
+  if (!department) return { err: '请选择科室' };
+  if (!DEPARTMENTS.includes(department)) return { err: '科室不在可选列表内' };
   if (name.length < 2 || name.length > 30) return { err: '请填写姓名（2-30 字）' };
   if (!validPhone(phone)) return { err: '联系电话格式不正确' };
   if (note.length > 500) return { err: '说明/建议请控制在 500 字以内' };
@@ -171,7 +170,7 @@ function notifyWeCom(data) {
       content:
         '**新的试用预约**\n' +
         '> 医院：' + data.hospital + '\n' +
-        '> 科室：' + (data.department || '未填写') + '\n' +
+        '> 科室：' + (data.department) + '\n' +
         '> 姓名：' + data.name + '\n' +
         '> 电话：' + data.phone + '\n' +
         (data.note ? '> 说明：' + data.note + '\n' : ''),
@@ -182,7 +181,7 @@ function notifyWeCom(data) {
     headers: { 'Content-Type': 'application/json' },
     body: payload,
     signal: AbortSignal.timeout(5000),
-  }).catch(() => {}); // 通知失败不影响主流程
+  }).catch(() => { }); // 通知失败不影响主流程
 }
 
 // ==================== 页面：预约表单 ====================
@@ -232,9 +231,9 @@ const FORM_HTML = `<!DOCTYPE html>
       <label>医院<span class="req">*</span></label>
       <input name="hospital" type="text" maxlength="50" placeholder="请填写医院全称">
 
-      <label>科室</label>
-      <select name="department">
-        <option value="">（可选）请选择科室</option>
+      <label>科室<span class="req">*</span></label>
+      <select name="department" required>
+        <option value="">请选择科室</option>
         ${deptOptions}
       </select>
 
@@ -285,6 +284,7 @@ const FORM_HTML = `<!DOCTYPE html>
     };
 
     if (!data.hospital) { showError('请填写医院名称'); return; }
+    if (!data.department) { showError('请选择科室'); return; }
     if (!data.name) { showError('请填写姓名'); return; }
     if (!data.phone) { showError('请填写联系电话'); return; }
 
@@ -382,7 +382,7 @@ function checkAuth(req) {
   const pass = decoded.slice(idx + 1);
   try {
     return crypto.timingSafeEqual(sha256(user), sha256(ADMIN_USER)) &&
-           crypto.timingSafeEqual(sha256(pass), sha256(ADMIN_PASS));
+      crypto.timingSafeEqual(sha256(pass), sha256(ADMIN_PASS));
   } catch { return false; }
 }
 

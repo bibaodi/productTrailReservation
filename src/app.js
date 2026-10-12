@@ -7,11 +7,7 @@ const { parseErrorResponse, readBody, readJSON, sendJSON, sendText } = require('
 const { createWeComNotifier } = require('./notifications');
 const { buildCSV, renderAdminPage, renderReservationPage } = require('./pages');
 const { createRateLimiter } = require('./rate-limit');
-const {
-  createReservation,
-  listReservations,
-  updateReservation,
-} = require('./reservation-service');
+const { createReservation, listReservations } = require('./reservation-service');
 const { DEPARTMENTS, validateInput } = require('./reservation-validation');
 
 const RATE_LIMIT = 10;
@@ -113,48 +109,8 @@ function createApp({
         return sendJSON(res, 200, {
           ok: true,
           reservations: result.rows,
-          total: result.total,
-          truncated: result.truncated,
           expiresAt: result.expiresAt,
         });
-      }
-
-      const reservationMatch = /^\/api\/reservations\/([1-9]\d{0,8})$/.exec(path);
-      if (req.method === 'PUT' && reservationMatch) {
-        if (!limiter.allow(clientIP(req))) {
-          try {
-            await readBody(req);
-          } catch (error) {
-            const failure = parseErrorResponse(error);
-            return sendJSON(res, failure.status, failure.body);
-          }
-          return sendJSON(res, 429, { ok: false, message: 'Too many submissions. Please try again later.' });
-        }
-        let body;
-        try {
-          body = await readJSON(req);
-        } catch (error) {
-          const failure = parseErrorResponse(error);
-          return sendJSON(res, failure.status, failure.body);
-        }
-        let token;
-        try {
-          token = bearerToken(req);
-        } catch {
-          return sendJSON(res, 401, { ok: false, message: 'Access token is invalid or expired.' });
-        }
-        if (!token) return sendJSON(res, 401, { ok: false, message: 'Access token is required.' });
-        const validation = validateInput(body);
-        if (validation.err) return sendJSON(res, 422, { ok: false, message: validation.err });
-        const updated = updateReservation(
-          db,
-          Number(reservationMatch[1]),
-          validation.ok,
-          token,
-          now(),
-        );
-        if (!updated) return sendJSON(res, 404, { ok: false, message: 'Reservation not found.' });
-        return sendJSON(res, 200, { ok: true });
       }
 
       if ((path === '/admin' || path === '/admin/export.csv') && req.method === 'GET') {

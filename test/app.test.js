@@ -75,13 +75,13 @@ test('creates reservations and gives the browser an opaque token stored only as 
 
   const listed = await request(baseURL, '/api/reservations', { token: result.body.accessToken });
   assert.equal(listed.response.status, 200);
-  assert.equal(listed.body.total, 1);
+  assert.equal(listed.body.reservations.length, 1);
   assert.equal(listed.body.reservations[0].id, result.body.id);
   assert.equal(listed.body.reservations[0].hospital, reservation.hospital);
 });
 
-test('allows adding multiple reservations and editing only records owned by the token', async (t) => {
-  const { baseURL } = await createFixture(t);
+test('keeps new submissions as separate records and only returns the latest to the browser', async (t) => {
+  const { db, baseURL } = await createFixture(t);
   const first = await request(baseURL, '/api/reserve', { method: 'POST', body: reservation });
   const token = first.body.accessToken;
   const second = await request(baseURL, '/api/reserve', {
@@ -91,27 +91,17 @@ test('allows adding multiple reservations and editing only records owned by the 
   });
   assert.equal(second.response.status, 200);
   assert.equal(second.body.accessToken, undefined);
-
-  const otherDevice = await request(baseURL, '/api/reserve', {
-    method: 'POST',
-    body: { ...reservation, name: '陈小明' },
-  });
-  const forbiddenEdit = await request(baseURL, '/api/reservations/' + first.body.id, {
-    method: 'PUT',
-    token: otherDevice.body.accessToken,
-    body: { ...reservation, name: '赵小明' },
-  });
-  assert.equal(forbiddenEdit.response.status, 404);
-
-  const edited = await request(baseURL, '/api/reservations/' + first.body.id, {
+  const unsupportedUpdate = await request(baseURL, '/api/reservations/' + first.body.id, {
     method: 'PUT',
     token,
     body: { ...reservation, name: '林小明' },
   });
-  assert.equal(edited.response.status, 200);
+  assert.equal(unsupportedUpdate.response.status, 404);
   const listed = await request(baseURL, '/api/reservations', { token });
-  assert.equal(listed.body.total, 2);
-  assert.equal(listed.body.reservations[1].name, '林小明');
+  assert.equal(listed.body.reservations.length, 1);
+  assert.equal(listed.body.reservations[0].id, second.body.id);
+  assert.equal(listed.body.reservations[0].name, '李小明');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trialreservations').get().n, 2);
 });
 
 test('slides token expiry on use and rejects an expired token', async (t) => {
@@ -137,6 +127,20 @@ test('slides token expiry on use and rejects an expired token', async (t) => {
   });
   assert.equal(rejectedCreate.response.status, 401);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trialreservations').get().n, 1);
+
+  const replacement = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: { ...reservation, name: '李小明' },
+  });
+  assert.equal(replacement.response.status, 200);
+  assert.notEqual(replacement.body.accessToken, token);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trialreservations').get().n, 2);
+  const latest = await request(baseURL, '/api/reservations', {
+    token: replacement.body.accessToken,
+  });
+  assert.equal(latest.response.status, 200);
+  assert.equal(latest.body.reservations.length, 1);
+  assert.equal(latest.body.reservations[0].name, '李小明');
 });
 
 test('validates bodies, content type, body size, and authorization', async (t) => {
@@ -178,8 +182,8 @@ test('admin search, date filter, pagination, and export require authentication',
       (hospital, department, name, phone, note, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
-  for (let day = 1; day <= 30; day += 1) {
-    const date = '2026-01-' + String(day).padStart(2, '0');
+  for (let day = 1; day <= 120; day += 1) {
+    const date = new Date(Date.UTC(2026, 0, day)).toISOString().slice(0, 10);
     insert.run(
       day % 2 ? 'Needle Clinic' : 'Other Hospital',
       day % 2 ? '内科' : '外科',
@@ -212,6 +216,9 @@ test('admin search, date filter, pagination, and export require authentication',
   });
   assert.match(pageTwo.text, /Page 2 of 2/);
   assert.match(pageTwo.text, /Person 5/);
+  assert.match(pageTwo.text, /20 matching reservations/);
+  assert.match(pageTwo.text, /100 per page/);
+  assert.doesNotMatch(pageTwo.text, /Person 21/);
 
   const csv = await request(baseURL, '/admin/export.csv?from=2026-01-12&to=2026-01-12', {
     headers: { Authorization: basicAuth() },

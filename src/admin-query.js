@@ -1,6 +1,6 @@
 'use strict';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 100;
 const MAX_EXPORT_ROWS = 10000;
 const MAX_SEARCH_LENGTH = 100;
 

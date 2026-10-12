@@ -36,13 +36,11 @@ function renderReservationPage(departments) {
          padding: 13px 0; cursor: pointer; }
   .btn:disabled { opacity: .6; }
   .secondary { background: #eef0f3; color: #1f2329; }
-  .err, .notice { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+  .err { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; }
   .err { background: #fef1f1; color: #f54a45; }
-  .notice { background: #e8f8f0; color: #16834e; }
   .privacy { margin-top: 20px; font-size: 12px; color: #8f959e; line-height: 1.7; }
-  .reservations { margin-bottom: 20px; }
-  .reservation-item { border-top: 1px solid #e5e6eb; padding: 12px 0; font-size: 14px; line-height: 1.6; }
-  .reservation-item button { border: 0; background: none; color: #008a52; padding: 6px 0; font-size: 14px; cursor: pointer; }
+  .returning, .success { margin-bottom: 20px; line-height: 1.7; }
+  .summary { margin-top: 12px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -50,13 +48,23 @@ function renderReservationPage(departments) {
   <div class="card">
     <h1>产品试用预约</h1>
     <p class="sub">请留下您的信息，我们会尽快与您联系</p>
-    <section id="reservations" class="reservations" hidden>
-      <h2 style="font-size:16px;margin-bottom:8px">此设备的预约记录</h2>
-      <div id="reservationList"></div>
-      <p id="reservationLimit" class="hint" hidden>这里只显示最近 100 条记录</p>
-      <button type="button" class="btn secondary" id="addAnotherBtn">新增预约</button>
+    <section id="returningActions" class="returning" hidden>
+      <h2 style="font-size:16px;margin-bottom:8px">欢迎回来</h2>
+      <p>此浏览器已有预约记录，您可以查看上次填写的信息，或创建新的预约。</p>
+      <button type="button" class="btn" id="viewPreviousBtn">查看上次预约信息</button>
+      <button type="button" class="btn secondary" id="createNewBtn">创建新的预约</button>
     </section>
-    <form id="form" autocomplete="off">
+    <section id="successState" class="success" hidden>
+      <h2 style="font-size:16px;margin-bottom:8px">预约提交成功</h2>
+      <p>感谢您的提交，我们会尽快与您联系。</p>
+      <div class="summary">
+        <p>医院：<strong id="successHospital"></strong></p>
+        <p>姓名：<strong id="successName"></strong></p>
+      </div>
+      <p id="storageWarning" class="hint" hidden>此浏览器无法保存访问凭证，关闭页面后将无法查看此预约。</p>
+    </section>
+    <form id="form" autocomplete="off" hidden>
+      <h2 id="formTitle" style="font-size:16px;margin-bottom:8px">新建预约</h2>
       <label>医院<span class="req">*</span></label>
       <input name="hospital" type="text" maxlength="50" placeholder="请填写医院全称" required>
       <label>科室<span class="req">*</span></label>
@@ -71,10 +79,9 @@ function renderReservationPage(departments) {
       <label>说明 / 建议</label>
       <textarea name="note" maxlength="500" placeholder="（选填）想试用的产品、场景或特殊需求等"></textarea>
       <div class="hint">最多 500 字</div>
+      <p id="revisionHint" class="hint" hidden>保存后将更新此设备显示的最新预约信息，之前提交的记录仍会保留。</p>
       <button class="btn" type="submit" id="submitBtn">提交预约</button>
-      <button class="btn secondary" type="button" id="cancelEditBtn" hidden>取消修改</button>
       <div class="err" id="errMsg" role="alert"></div>
-      <div class="notice" id="noticeMsg" role="status"></div>
       <p class="privacy">提交即表示您同意我们仅将以上信息用于本次试用安排与联系。信息不会被分享给第三方，您可以随时联系我们删除。</p>
     </form>
   </div>
@@ -84,90 +91,78 @@ function renderReservationPage(departments) {
 (function () {
   var form = document.getElementById('form');
   var submitBtn = document.getElementById('submitBtn');
-  var cancelEditBtn = document.getElementById('cancelEditBtn');
   var errMsg = document.getElementById('errMsg');
-  var noticeMsg = document.getElementById('noticeMsg');
-  var reservationsBox = document.getElementById('reservations');
-  var reservationList = document.getElementById('reservationList');
-  var reservationLimit = document.getElementById('reservationLimit');
+  var returningActions = document.getElementById('returningActions');
+  var successState = document.getElementById('successState');
+  var formTitle = document.getElementById('formTitle');
+  var revisionHint = document.getElementById('revisionHint');
+  var latestReservation = null;
   var accessToken = null;
-  var editingId = null;
-  var reservations = [];
 
   function showError(message) {
-    noticeMsg.style.display = 'none';
     errMsg.textContent = message;
     errMsg.style.display = 'block';
   }
 
-  function showNotice(message) {
-    errMsg.style.display = 'none';
-    noticeMsg.textContent = message;
-    noticeMsg.style.display = 'block';
-  }
-
-  function resetForm() {
+  function showForm(usePrevious) {
+    returningActions.hidden = true;
+    successState.hidden = true;
+    form.hidden = false;
     form.reset();
-    editingId = null;
-    submitBtn.textContent = '提交预约';
-    cancelEditBtn.hidden = true;
+    formTitle.textContent = usePrevious ? '修改上次预约' : '新建预约';
+    submitBtn.textContent = usePrevious ? '保存修改' : '提交预约';
+    revisionHint.hidden = !usePrevious;
+    if (usePrevious && latestReservation) {
+      form.hospital.value = latestReservation.hospital;
+      form.department.value = latestReservation.department;
+      form.name.value = latestReservation.name;
+      form.phone.value = latestReservation.phone;
+      form.note.value = latestReservation.note || '';
+    }
+    errMsg.style.display = 'none';
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  function renderReservations(items, truncated) {
-    reservations = items;
-    reservationList.replaceChildren();
-    reservationsBox.hidden = items.length === 0;
-    reservationLimit.hidden = !truncated;
-    items.forEach(function (item) {
-      var entry = document.createElement('div');
-      entry.className = 'reservation-item';
-      var details = document.createElement('div');
-      details.textContent = item.hospital + ' · ' + item.department + ' · ' + item.name +
-        ' · ' + item.phone + ' · ' + item.created_at;
-      var edit = document.createElement('button');
-      edit.type = 'button';
-      edit.textContent = '修改此预约';
-      edit.addEventListener('click', function () {
-        form.hospital.value = item.hospital;
-        form.department.value = item.department;
-        form.name.value = item.name;
-        form.phone.value = item.phone;
-        form.note.value = item.note || '';
-        editingId = item.id;
-        submitBtn.textContent = '保存修改';
-        cancelEditBtn.hidden = false;
-        errMsg.style.display = 'none';
-        noticeMsg.style.display = 'none';
-        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      entry.append(details, edit);
-      reservationList.append(entry);
-    });
-  }
-
-  function forgetToken(message) {
+  function clearAccessToken() {
     accessToken = null;
-    var storageCleanupFailed = false;
     try {
       localStorage.removeItem('trialReservationAccessToken');
-    } catch (error) {
-      storageCleanupFailed = true;
+      return true;
+    } catch (_) {
+      return false;
     }
-    renderReservations([], false);
-    resetForm();
-    showError(message + (storageCleanupFailed ? ' 无法清除旧凭证，请清理浏览器站点数据后重试。' : ''));
+  }
+
+  function showReturningActions(item) {
+    latestReservation = item;
+    form.hidden = true;
+    successState.hidden = true;
+    returningActions.hidden = false;
+  }
+
+  function showSuccess(data, storageFailed) {
+    form.hidden = true;
+    returningActions.hidden = true;
+    document.getElementById('successHospital').textContent = data.hospital;
+    document.getElementById('successName').textContent = data.name;
+    document.getElementById('storageWarning').hidden = !storageFailed;
+    successState.hidden = false;
   }
 
   function loadReservations(readStoredToken) {
     if (readStoredToken) {
       try {
         accessToken = localStorage.getItem('trialReservationAccessToken');
-      } catch (error) {
+      } catch (_) {
+        form.hidden = false;
         showError('此浏览器无法读取预约访问凭证，请检查浏览器存储设置。');
         return;
       }
     }
-    if (!accessToken) return;
+    if (!accessToken) {
+      form.hidden = false;
+      return;
+    }
     fetch('api/reservations', {
       headers: { Authorization: 'Bearer ' + accessToken }
     }).then(function (response) {
@@ -176,32 +171,32 @@ function renderReservationPage(departments) {
       });
     }).then(function (result) {
       if (result.status === 401) {
-        forgetToken('本设备的预约访问已过期，请重新提交预约。原预约记录仍保留，但无法通过此设备凭证修改。');
+        var tokenCleared = clearAccessToken();
+        form.hidden = false;
+        showError('访问凭证已过期（连续 30 天未成功访问）。原预约记录仍保留，但无法通过此凭证查看；您可以重新创建预约。' +
+          (tokenCleared ? '' : ' 无法清除浏览器中的旧凭证，请清理此网站的浏览器数据。'));
         return;
       }
       if (!result.body.ok) throw new Error('Unable to load reservations');
-      renderReservations(result.body.reservations, result.body.truncated);
+      var latest = result.body.reservations[0];
+      if (latest) showReturningActions(latest);
+      else form.hidden = false;
     }).catch(function () {
+      form.hidden = false;
       showError('暂时无法读取此设备的预约记录，请稍后重试。');
     });
   }
 
-  document.getElementById('addAnotherBtn').addEventListener('click', function () {
-    resetForm();
-    errMsg.style.display = 'none';
-    noticeMsg.style.display = 'none';
-    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('viewPreviousBtn').addEventListener('click', function () {
+    showForm(true);
   });
-  cancelEditBtn.addEventListener('click', function () {
-    resetForm();
-    errMsg.style.display = 'none';
-    noticeMsg.style.display = 'none';
+  document.getElementById('createNewBtn').addEventListener('click', function () {
+    showForm(false);
   });
 
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     errMsg.style.display = 'none';
-    noticeMsg.style.display = 'none';
     var data = {
       hospital: form.hospital.value.trim(),
       department: form.department.value,
@@ -218,12 +213,10 @@ function renderReservationPage(departments) {
 
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中…';
-    var updating = editingId !== null;
     var headers = { 'Content-Type': 'application/json' };
     if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
-    var endpoint = editingId === null ? 'api/reserve' : 'api/reservations/' + editingId;
-    fetch(endpoint, {
-      method: editingId === null ? 'POST' : 'PUT',
+    fetch('api/reserve', {
+      method: 'POST',
       headers: headers,
       body: JSON.stringify(data)
     }).then(function (response) {
@@ -232,7 +225,9 @@ function renderReservationPage(departments) {
       });
     }).then(function (result) {
       if (result.status === 401) {
-        forgetToken('访问凭证已过期。您仍可新增预约；原记录无法使用此凭证修改。');
+        var tokenCleared = clearAccessToken();
+        showError('访问凭证已过期，本次未创建预约。请再次提交以使用新凭证创建预约；原记录无法通过此凭证查看。' +
+          (tokenCleared ? '' : ' 无法清除浏览器中的旧凭证，请清理此网站的浏览器数据。'));
         return;
       }
       if (result.status !== 200 || !result.body.ok) {
@@ -246,20 +241,16 @@ function renderReservationPage(departments) {
           localStorage.setItem('trialReservationAccessToken', accessToken);
         } catch (_) {
           storageFailed = true;
-          showError('预约已提交，但浏览器无法保存访问凭证；关闭此页面后将无法取回此预约。');
         }
       }
-      resetForm();
-      if (!storageFailed) {
-        showNotice(updating ? '预约已更新。' : '预约已提交。此浏览器可查看和修改此设备提交的预约。');
-      }
-      loadReservations(false);
+      showSuccess(data, storageFailed);
     }).catch(function () {
       showError('网络异常，请检查网络后重试');
     }).finally(function () {
       submitBtn.disabled = false;
-      if (editingId !== null) submitBtn.textContent = '保存修改';
-      else if (submitBtn.textContent === '提交中…') submitBtn.textContent = '提交预约';
+      if (submitBtn.textContent === '提交中…') {
+        submitBtn.textContent = revisionHint.hidden ? '提交预约' : '保存修改';
+      }
     });
   });
 
@@ -324,6 +315,9 @@ function renderAdminPage(result, filters) {
   th, td { border: 1px solid #e5e6eb; padding: 8px 10px; text-align: left; word-break: break-word; }
   th { background: #f7f8fa; }
   .actions, .pages { margin: 14px 0; display: flex; gap: 16px; align-items: center; }
+  .button-link { display: inline-block; padding: 9px 14px; border: 1px solid #007a52;
+    border-radius: 5px; background: #008a52; color: #fff; text-decoration: none; }
+  .button-link:hover { background: #006f43; }
   .empty { padding: 32px; text-align: center; color: #8f959e; }
 </style>
 </head>
@@ -349,7 +343,7 @@ function renderAdminPage(result, filters) {
   <button type="submit">Search</button>
   <a href="?">Clear</a>
 </form>
-<div class="actions"><a href="${escapeHTML(exportLink)}">Export filtered CSV (up to 10,000 rows)</a></div>
+<div class="actions"><a class="button-link" href="${escapeHTML(exportLink)}">Export filtered CSV (up to 10,000 rows)</a></div>
 <table>
   <thead><tr><th>#</th><th>Hospital</th><th>Department</th><th>Name</th><th>Phone</th><th>Notes</th><th>Created</th></tr></thead>
   <tbody>${rows || '<tr><td class="empty" colspan="7">No reservations found.</td></tr>'}</tbody>

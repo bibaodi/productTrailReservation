@@ -13,8 +13,10 @@ dependencies.
 - Mobile-friendly reservation form for hospitals, departments, contacts, and
   optional notes.
 - Server-side input validation and per-IP submission rate limiting.
-- Browser-specific reservation retrieval and editing, with access tokens that
-  expire 30 days after the last successful use.
+- Browser-specific retrieval of the latest reservation, with access tokens
+  that expire after 30 days without successful access.
+- Returning visitors can start a new reservation from their latest details;
+  submitting always creates a new record and never changes an existing one.
 - SQLite storage for reservation records.
 - Password-protected admin page with pagination, text search, date filters, and
   filtered CSV export.
@@ -69,13 +71,23 @@ The application listens on `127.0.0.1:8787` by default and creates
 
 See [docs/ubuntu-deploy.md](docs/ubuntu-deploy.md) for detailed Ubuntu
 deployment and update instructions.
+See [docs/261010-changes-readme.md](docs/261010-changes-readme.md) for a dated
+record of notable application changes.
 
 Reservation access is tied to a random token saved in the browser's local
-storage. The same browser profile can retrieve, edit, or add reservations made
-with that token. Use the same browser profile on the same device; clearing site
-data, using private browsing, or waiting 30 days without a successful visit
-will remove access. Expired reservations remain in the database but cannot be
-recovered through this feature.
+storage. After the first successful submission, the page displays confirmation
+with the hospital and name only. When the same browser profile opens the page
+again, it can view the latest reservation's details or start a new reservation.
+Choosing to view the previous details opens a form labeled “修改上次预约”
+with a “保存修改” button. Saving makes the changed information the latest
+reservation in this browser; the system keeps the original submission as a
+separate database record. The browser view shows only the latest record.
+
+Use the same browser profile on the same device; clearing site data, using
+private browsing, or going 30 days without successful access loses access to
+the existing records. Expired records remain in the database but cannot be
+recovered through this feature. After expiry, a new submission creates a new
+browser access token.
 
 ## Tests
 
@@ -84,6 +96,16 @@ Run the built-in Node.js unit tests from the repository root:
 ```bash
 node --test
 ```
+
+This discovers and runs the test files in `test/`. To run one test file:
+
+```bash
+node --test test/reservation-validation.test.js
+```
+
+Do not use `node test`: Node treats `test` as a script filename, but this
+repository has a `test/` directory rather than a `test` script. No npm script
+is configured.
 
 ## Configuration
 
@@ -103,13 +125,12 @@ node --test
 | `GET` | `/` | Reservation form |
 | `POST` | `/api/reserve` | Submit a reservation |
 | `GET` | `/api/reservations` | List reservations for the browser's bearer token |
-| `PUT` | `/api/reservations/:id` | Update a reservation belonging to that token |
 | `GET` | `/admin` | View recent reservations (HTTP Basic Authentication) |
 | `GET` | `/admin/export.csv` | Export reservations as CSV (HTTP Basic Authentication) |
 | `GET` | `/healthz` | Health check |
 
 The admin page has separate name, hospital, and department search fields;
-filters by inclusive calendar-date range; and displays 25 records per page.
+filters by inclusive calendar-date range; and displays 100 records per page.
 CSV exports include the active search and date filters, capped at 10,000
 records.
 

@@ -3,7 +3,6 @@
 const crypto = require('node:crypto');
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_DEVICE_RESERVATIONS = 100;
 const RESERVATION_COLUMNS = 'id, hospital, department, name, phone, note, created_at';
 
 function hashToken(token) {
@@ -73,52 +72,22 @@ function createReservation(db, reservation, userAgent, token, now = Date.now()) 
 function listReservations(db, token, now = Date.now()) {
   const device = findAndRefreshToken(db, token, now);
   if (!device) return null;
-  const total = Number(db.prepare(
-    'SELECT COUNT(*) AS total FROM trialreservations WHERE device_token_id = ?'
-  ).get(device.id).total);
-  const rows = db.prepare(`
+  const latest = db.prepare(`
     SELECT ${RESERVATION_COLUMNS}
     FROM trialreservations
     WHERE device_token_id = ?
     ORDER BY id DESC
-    LIMIT ?
-  `).all(device.id, MAX_DEVICE_RESERVATIONS);
+    LIMIT 1
+  `).get(device.id);
   return {
-    rows,
-    total,
-    truncated: total > MAX_DEVICE_RESERVATIONS,
+    rows: latest ? [latest] : [],
     expiresAt: device.expiresAt,
   };
 }
 
-function updateReservation(db, id, reservation, token, now = Date.now()) {
-  const device = findAndRefreshToken(db, token, now);
-  if (!device) {
-    const error = new Error('Access token is missing or expired');
-    error.statusCode = 401;
-    throw error;
-  }
-  const result = db.prepare(`
-    UPDATE trialreservations
-    SET hospital = ?, department = ?, name = ?, phone = ?, note = ?
-    WHERE id = ? AND device_token_id = ?
-  `).run(
-    reservation.hospital,
-    reservation.department,
-    reservation.name,
-    reservation.phone,
-    reservation.note,
-    id,
-    device.id,
-  );
-  return Number(result.changes) === 1;
-}
-
 module.exports = {
-  MAX_DEVICE_RESERVATIONS,
   TOKEN_TTL_MS,
   createReservation,
   findAndRefreshToken,
   listReservations,
-  updateReservation,
 };

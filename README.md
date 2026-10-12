@@ -13,8 +13,11 @@ dependencies.
 - Mobile-friendly reservation form for hospitals, departments, contacts, and
   optional notes.
 - Server-side input validation and per-IP submission rate limiting.
+- Browser-specific reservation retrieval and editing, with access tokens that
+  expire 30 days after the last successful use.
 - SQLite storage for reservation records.
-- Password-protected admin page and CSV export.
+- Password-protected admin page with pagination, text search, date filters, and
+  filtered CSV export.
 - Optional notifications to a WeCom group bot.
 - Docker deployment with persistent database storage.
 
@@ -67,6 +70,13 @@ The application listens on `127.0.0.1:8787` by default and creates
 See [docs/ubuntu-deploy.md](docs/ubuntu-deploy.md) for detailed Ubuntu
 deployment and update instructions.
 
+Reservation access is tied to a random token saved in the browser's local
+storage. The same browser profile can retrieve, edit, or add reservations made
+with that token. Use the same browser profile on the same device; clearing site
+data, using private browsing, or waiting 30 days without a successful visit
+will remove access. Expired reservations remain in the database but cannot be
+recovered through this feature.
+
 ## Tests
 
 Run the built-in Node.js unit tests from the repository root:
@@ -92,9 +102,16 @@ node --test
 | --- | --- | --- |
 | `GET` | `/` | Reservation form |
 | `POST` | `/api/reserve` | Submit a reservation |
+| `GET` | `/api/reservations` | List reservations for the browser's bearer token |
+| `PUT` | `/api/reservations/:id` | Update a reservation belonging to that token |
 | `GET` | `/admin` | View recent reservations (HTTP Basic Authentication) |
 | `GET` | `/admin/export.csv` | Export reservations as CSV (HTTP Basic Authentication) |
 | `GET` | `/healthz` | Health check |
+
+The admin page has separate name, hospital, and department search fields;
+filters by inclusive calendar-date range; and displays 25 records per page.
+CSV exports include the active search and date filters, capped at 10,000
+records.
 
 ## License
 

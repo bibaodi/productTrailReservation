@@ -53,8 +53,18 @@ services:
 data/
 .git/
 node_modules/
+**/node_modules/
 *.db*
-*.env
+**/*.db*
+*.env*
+**/*.env*
+src/trialreservation.env
+*.tar
+**/*.tar
+*.tar.gz
+**/*.tar.gz
+*.zip
+**/*.zip
 ```
 
 ### 4. 启动
@@ -101,7 +111,7 @@ docker compose up -d    # compose 发现镜像已更新，自动重建容器
 
 ### A1. 安装 Node.js 24 LTS
 
-`server.js` 使用 Node 内置的 `node:sqlite`，需要 **Node ≥ 23.4**（推荐 24 LTS）。Ubuntu 自带的 node 版本太旧，不要用 `apt install nodejs` 直接装。
+应用使用 Node 内置的 `node:sqlite`，需要 **Node ≥ 23.4**（推荐 24 LTS）。Ubuntu 自带的 node 版本太旧，不要用 `apt install nodejs` 直接装。
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
@@ -113,7 +123,8 @@ node -v   # 确认 >= 23.4
 
 ```bash
 sudo mkdir -p /opt/trialreservation
-sudo cp src/server.js /opt/trialreservation/server.js
+sudo mkdir -p /opt/trialreservation/src
+sudo install -o www-data -g www-data -m 0644 src/*.js /opt/trialreservation/src/
 sudo chown -R www-data:www-data /opt/trialreservation
 ```
 
@@ -147,7 +158,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/trialreservation
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node src/server.js
 EnvironmentFile=/etc/trialreservation.env
 Restart=always
 RestartSec=3
@@ -220,15 +231,16 @@ sudo nginx -t && sudo systemctl reload nginx
 
 | 操作 | 方式 |
 |------|------|
-| 查看预约列表 | 浏览器打开 `https://your-domain.com/admin`，输入 Basic Auth 账号密码 |
-| 导出 Excel | 管理页点「导出 CSV」，或直接访问 `/admin/export.csv` |
+| 查看预约列表 | 浏览器打开 `https://your-domain.com/admin`（子路径部署则加上子路径，例如 `/trialreserve/admin`），输入 Basic Auth 账号密码；支持按姓名、医院、科室搜索，按日期筛选和分页 |
+| 导出 Excel | 管理页点「Export filtered CSV」，或直接访问 `/admin/export.csv` |
+| 用户修改预约 | 同一浏览器配置文件可查看和修改该浏览器提交的预约；访问凭证在最后一次成功访问 30 天后过期 |
 | 服务器命令行查看 | `./dump-db.sh data/trialreservations.db`（需先 `sudo apt-get install -y sqlite3`；末尾加 `--csv` 可输出 CSV） |
 | 群通知 | 配置 `WECOM_WEBHOOK_URL` 后，每条新预约自动推送到企业微信群 |
 | 数据备份 | 单文件即可（建议 crontab 每日复制）：Docker 部署在 `/opt/trialreservation/data/trialreservations.db`；裸机部署在 `/opt/trialreservation/trialreservations.db` |
 
 ## 维护备注
 
-- **改科室列表**：编辑 `server.js` 顶部的 `DEPARTMENTS` 数组后重启：Docker `sudo docker compose up -d --build`；裸机 `sudo systemctl restart trialreservation`。
+- **改科室列表**：编辑 `src/reservation-validation.js` 中的 `DEPARTMENTS` 数组后重启：Docker `sudo docker compose up -d --build`；裸机重新同步 `src/` 后执行 `sudo systemctl restart trialreservation`。
 - **IP 频率限制**：同一 IP 每小时最多 10 次提交，防刷够用；如需调整改 `RATE_LIMIT`。
 - **隐私合规**：表单页已附简要隐私说明；电话为个人信息，请勿将 `/admin` 地址或数据库文件外泄，密码务必用强密码。
 - **无需申请**：此方案不调用微信 JS-SDK、不做网页授权，不涉及公众号开发资质要求；后续若想识别用户（openid 防重复提交），再评估接入网页授权（需要已认证服务号）。

@@ -1,5 +1,15 @@
 data/
 .git/
 node_modules/
+**/node_modules/
 *.db*
-*.env
+**/*.db*
+*.env*
+**/*.env*
+src/trialreservation.env
+*.tar
+**/*.tar
+*.tar.gz
+**/*.tar.gz
+*.zip
+**/*.zip

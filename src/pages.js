@@ -3,6 +3,8 @@
 const { PAGE_SIZE } = require('./admin-query');
 const { csvCell, escapeHTML } = require('./safe-output');
 
+const QR_IMAGE_URL = 'imgs/wechat-official-account-qrcode_for_gh_4b320bf4dce6_1280.jpg';
+
 function renderReservationPage(departments) {
   const departmentOptions = departments
     .map((department) => `<option value="${escapeHTML(department)}">${escapeHTML(department)}</option>`)
@@ -41,13 +43,16 @@ function renderReservationPage(departments) {
   .privacy { margin-top: 20px; font-size: 12px; color: #8f959e; line-height: 1.7; }
   .returning, .success { margin-bottom: 20px; line-height: 1.7; }
   .summary { margin-top: 12px; font-size: 14px; }
+  .follow { margin-top: 20px; padding-top: 18px; border-top: 1px solid #eef0f3; text-align: center; }
+  .follow p { font-size: 14px; }
+  .qrcode { display: block; width: 180px; height: 180px; margin: 12px auto 0; border-radius: 8px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="card">
     <h1>产品试用预约</h1>
-    <p class="sub">请留下您的信息，我们会尽快与您联系</p>
+    <p class="sub" id="subtitle">请留下您的信息，我们会尽快与您联系</p>
     <section id="returningActions" class="returning" hidden>
       <h2 style="font-size:16px;margin-bottom:8px">欢迎回来</h2>
       <p>此浏览器已有预约记录，您可以查看上次填写的信息，或创建新的预约。</p>
@@ -62,6 +67,10 @@ function renderReservationPage(departments) {
         <p>姓名：<strong id="successName"></strong></p>
       </div>
       <p id="storageWarning" class="hint" hidden>此浏览器无法保存访问凭证，关闭页面后将无法查看此预约。</p>
+      <div class="follow">
+        <p>为了与我们保持更多联系，欢迎关注即时超声公众号</p>
+        <img id="qrcodeImg" class="qrcode" alt="即时超声公众号二维码" width="180" height="180" data-src="${QR_IMAGE_URL}">
+      </div>
     </section>
     <form id="form" autocomplete="off" hidden>
       <h2 id="formTitle" style="font-size:16px;margin-bottom:8px">新建预约</h2>
@@ -96,6 +105,7 @@ function renderReservationPage(departments) {
   var successState = document.getElementById('successState');
   var formTitle = document.getElementById('formTitle');
   var revisionHint = document.getElementById('revisionHint');
+  var subtitle = document.getElementById('subtitle');
   var latestReservation = null;
   var accessToken = null;
 
@@ -108,6 +118,7 @@ function renderReservationPage(departments) {
     returningActions.hidden = true;
     successState.hidden = true;
     form.hidden = false;
+    subtitle.hidden = false;
     form.reset();
     formTitle.textContent = usePrevious ? '修改上次预约' : '新建预约';
     submitBtn.textContent = usePrevious ? '保存修改' : '提交预约';
@@ -137,15 +148,21 @@ function renderReservationPage(departments) {
     latestReservation = item;
     form.hidden = true;
     successState.hidden = true;
+    subtitle.hidden = true;
     returningActions.hidden = false;
   }
 
   function showSuccess(data, storageFailed) {
     form.hidden = true;
     returningActions.hidden = true;
+    subtitle.hidden = true;
     document.getElementById('successHospital').textContent = data.hospital;
     document.getElementById('successName').textContent = data.name;
     document.getElementById('storageWarning').hidden = !storageFailed;
+    var qrcode = document.getElementById('qrcodeImg');
+    if (qrcode && !qrcode.getAttribute('src')) {
+      qrcode.setAttribute('src', qrcode.getAttribute('data-src'));
+    }
     successState.hidden = false;
   }
 
@@ -366,4 +383,4 @@ function buildCSV(rows) {
   return '\uFEFF' + lines.join('\r\n');
 }
 
-module.exports = { buildCSV, renderAdminPage, renderReservationPage };
+module.exports = { buildCSV, QR_IMAGE_URL, renderAdminPage, renderReservationPage };

@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src/app');
 const { openDatabase } = require('../src/database');
+const { QR_IMAGE_URL } = require('../src/pages');
 const { TOKEN_TTL_MS } = require('../src/reservation-service');
 
 const reservation = {
@@ -237,6 +238,15 @@ test('admin query rendering escapes reflected search input', async (t) => {
   assert.equal(response.response.status, 200);
   assert.doesNotMatch(response.text, /value="<script>/);
   assert.match(response.text, /name="hospital" maxlength="100" value="&lt;script&gt;"/);
+});
+
+test('serves the WeChat official account QR code image', async (t) => {
+  const { baseURL } = await createFixture(t);
+  const response = await fetch(baseURL + '/' + QR_IMAGE_URL);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'image/jpeg');
+  assert.equal(response.headers.get('cache-control'), 'public, max-age=86400');
+  assert.ok((await response.arrayBuffer()).byteLength > 0);
 });
 
 test('enforces the per-IP mutation rate limit', async (t) => {

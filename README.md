@@ -1,6 +1,6 @@
 # Product Trial Reservation
 
-**Version:** v01  
+**Version:** v1.2  
 **Author:** Eton  
 **Date:** 2026-10-10
 

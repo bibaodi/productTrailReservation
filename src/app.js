@@ -1,11 +1,13 @@
 'use strict';
 
+const fs = require('node:fs');
 const net = require('node:net');
+const path = require('node:path');
 const { parseAdminFilters, queryAdminReservations } = require('./admin-query');
 const { bearerToken, checkBasicAuth } = require('./auth');
 const { parseErrorResponse, readBody, readJSON, sendJSON, sendText } = require('./http-utils');
 const { createWeComNotifier } = require('./notifications');
-const { buildCSV, renderAdminPage, renderReservationPage } = require('./pages');
+const { buildCSV, QR_IMAGE_URL, renderAdminPage, renderReservationPage } = require('./pages');
 const { createRateLimiter } = require('./rate-limit');
 const { createReservation, listReservations } = require('./reservation-service');
 const { DEPARTMENTS, validateInput } = require('./reservation-validation');
@@ -41,6 +43,7 @@ function createApp({
   const limiter = createRateLimiter({ limit: rateLimit, windowMs: rateWindowMs, now });
   const notify = createWeComNotifier(wecomWebhookURL);
   const reservationPage = renderReservationPage(DEPARTMENTS);
+  const qrImage = fs.readFileSync(path.join(__dirname, '..', QR_IMAGE_URL));
 
   async function handle(req, res) {
     let url;
@@ -53,6 +56,17 @@ function createApp({
       }
       if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
         return sendText(res, 200, reservationPage);
+      }
+      if (req.method === 'GET' && path === '/' + QR_IMAGE_URL) {
+        res.writeHead(200, {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': qrImage.length,
+          'Cache-Control': 'public, max-age=86400',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        });
+        return res.end(qrImage);
       }
 
       if (req.method === 'POST' && path === '/api/reserve') {

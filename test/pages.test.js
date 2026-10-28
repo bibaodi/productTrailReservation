@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { renderAdminPage, renderReservationPage } = require('../src/pages');
+const { QR_IMAGE_URL, renderAdminPage, renderReservationPage } = require('../src/pages');
 
 test('reservation API URLs remain relative to a deployed subpath', () => {
   const html = renderReservationPage(['内科']);
@@ -15,11 +15,27 @@ test('reservation API URLs remain relative to a deployed subpath', () => {
   assert.match(html, /id="revisionHint" class="hint" hidden>保存后将更新此设备显示的最新预约信息，之前提交的记录仍会保留。/);
   assert.match(html, /id="successHospital"/);
   assert.match(html, /id="successName"/);
+  assert.match(html, /<p class="sub" id="subtitle">请留下您的信息，我们会尽快与您联系<\/p>/);
+  assert.match(html, /subtitle\.hidden = true;/);
+  assert.match(html, /subtitle\.hidden = false;/);
   assert.match(html, /fetch\('api\/reserve', \{\s*method: 'POST'/);
   assert.doesNotMatch(html, /method: 'PUT'|取消修改|修改此预约/);
   assert.equal(
     new URL('api/reserve', 'https://example.test/trialreserve/').pathname,
     '/trialreserve/api/reserve',
+  );
+});
+
+test('success prompt invites the user to follow the WeChat account with a QR code', () => {
+  const html = renderReservationPage(['内科']);
+  assert.match(html, /为了与我们保持更多联系，欢迎关注即时超声公众号/);
+  assert.match(html, /id="qrcodeImg" class="qrcode" alt="即时超声公众号二维码"/);
+  assert.equal(QR_IMAGE_URL, 'imgs/wechat-official-account-qrcode_for_gh_4b320bf4dce6_1280.jpg');
+  assert.match(html, new RegExp('data-src="' + QR_IMAGE_URL + '"'));
+  assert.match(html, /qrcode\.setAttribute\('src', qrcode\.getAttribute\('data-src'\)\)/);
+  assert.equal(
+    new URL(QR_IMAGE_URL, 'https://example.test/trialreserve/').pathname,
+    '/trialreserve/' + QR_IMAGE_URL,
   );
 });
 

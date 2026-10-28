@@ -1,3 +1,4 @@
 reservations.db*
 *.db*
 *.gz
+.env

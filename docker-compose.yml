@@ -1,6 +1,9 @@
 services:
   trialreservation:
-    image: trialreservation:latest   # 服务器上已有该镜像时直接使用，不触发构建
+    # 服务器上已有该镜像时直接使用，不触发构建
+    # IMAGE_TAG is written to .env by scritps/build-save-image.sh from the repo's git tag
+    # (compose can only interpolate variables, it cannot run git).
+    image: "trialreservation:${IMAGE_TAG:?IMAGE_TAG is not set; run scritps/build-save-image.sh or add IMAGE_TAG=... to .env}"
     build: .                    # 镜像不存在时（开发机）才按 Dockerfile 构建
     container_name: trialreservation
     restart: unless-stopped

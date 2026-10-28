@@ -85,26 +85,29 @@ curl -s http://127.0.0.1:8787/healthz     # 应返回 {"ok":true}
 
 ### 5. 更新方式：开发机构建，推送镜像到服务器（推荐）
 
-服务器上不需要放代码、不需要装 Node，只需要 `docker-compose.yml`、`src/trialreservation.env`、`data/` 三样东西。compose 中同时声明了 `image:` 与 `build:`：镜像已存在就直接用，不存在才本地构建。
+服务器上不需要放代码、不需要装 Node，只需要 `docker-compose.yml`、`.env`、`src/trialreservation.env`、`data/`。compose 中同时声明了 `image:` 与 `build:`：镜像已存在就直接用，不存在才本地构建。
 
-开发机一条命令构建，经 SSH 直接送进服务器的 Docker（无需任何镜像仓库）：
+compose 本身不能执行 `git` 命令，只能插值环境变量；因此 `docker-compose.yml` 写成 `image: "trialreservation:${IMAGE_TAG:?...}"`，由 `.env` 提供 `IMAGE_TAG`。`scritps/build-save-image.sh` 会自动读取 `git describe --tags --abbrev=0`、构建同名镜像，并生成 `.env`，因此无需手动改版本号：
 
 ```bash
-docker build -t trialreservation:latest .
-docker save trialreservation:latest | gzip | ssh user@your-server 'gunzip | docker load'
+git tag v1.2              # 发布前先给当前提交打 tag
+scritps/build-save-image.sh
 ```
 
-服务器上生效：
+该脚本会完成构建、`docker save` 压缩、并把镜像包、`.env` 和 `docker-compose.yml` 一起传到服务器 `/tmp`。服务器上按脚本末尾的注释执行即可：
 
 ```bash
+gunzip -c trialreservation.tar.gz | sudo docker load
+sudo cp /tmp/docker-compose.yml /opt/trialreservation/docker-compose.yml
+sudo cp /tmp/.env /opt/trialreservation/.env
 cd /opt/trialreservation
-docker compose up -d    # compose 发现镜像已更新，自动重建容器
+sudo docker compose up -d --no-build --force-recreate
 ```
 
 说明：
 
 - `docker save | ssh | docker load` 不经过第三方仓库，不受国内访问 Docker Hub 不稳定的影响；镜像约 150MB，压缩后传输通常几十秒。
-- 需要回滚时打版本标签：`docker build -t trialreservation:1.0.0 .` 多推几份镜像，改 compose 里 `image:` 的 tag 即可切换。
+- 需要回滚时，在服务器 `.env` 里把 `IMAGE_TAG` 改成已加载的旧 tag（如 `IMAGE_TAG=v1.0`），再 `docker compose up -d --no-build --force-recreate`；或切回旧 tag 重新运行脚本。
 - 以后镜像多、服务器多时，再考虑在服务器自建私有 registry（`registry:2` 容器 + nginx 反代），或接入 GitHub Actions 自动构建推送。
 
 ## 方式二：裸机部署（备选）

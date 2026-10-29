@@ -3,14 +3,15 @@
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
-const { parseAdminFilters, queryAdminReservations } = require('./admin-query');
-const { bearerToken, checkBasicAuth } = require('./auth');
+const { createAdminRouter } = require('./admin-router');
+const { bearerToken } = require('./auth');
 const { parseErrorResponse, readBody, readJSON, sendJSON, sendText } = require('./http-utils');
 const { createWeComNotifier } = require('./notifications');
-const { buildCSV, QR_IMAGE_URL, renderAdminPage, renderReservationPage } = require('./pages');
+const { QR_IMAGE_URL, renderReservationPage } = require('./pages');
 const { createRateLimiter } = require('./rate-limit');
 const { createReservation, listReservations } = require('./reservation-service');
-const { DEPARTMENTS, validateInput } = require('./reservation-validation');
+const { validateInput } = require('./reservation-validation');
+const { getSettings } = require('./settings');
 
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -22,12 +23,6 @@ function clientIP(req) {
     if (net.isIP(candidate)) return candidate;
   }
   return req.socket.remoteAddress || 'unknown';
-}
-
-function sendUnauthorized(res) {
-  sendText(res, 401, 'Unauthorized', {
-    'WWW-Authenticate': 'Basic realm="admin", charset="UTF-8"',
-  });
 }
 
 function createApp({
@@ -42,7 +37,7 @@ function createApp({
   if (!db) throw new TypeError('A database connection is required');
   const limiter = createRateLimiter({ limit: rateLimit, windowMs: rateWindowMs, now });
   const notify = createWeComNotifier(wecomWebhookURL);
-  const reservationPage = renderReservationPage(DEPARTMENTS);
+  const adminRouter = createAdminRouter({ db, adminUser, adminPass, now });
   const qrImage = fs.readFileSync(path.join(__dirname, '..', QR_IMAGE_URL));
 
   async function handle(req, res) {
@@ -55,7 +50,8 @@ function createApp({
         return sendJSON(res, 200, { ok: true });
       }
       if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
-        return sendText(res, 200, reservationPage);
+        const settings = getSettings(db);
+        return sendText(res, 200, renderReservationPage(settings.departments, settings));
       }
       if (req.method === 'GET' && path === '/' + QR_IMAGE_URL) {
         res.writeHead(200, {
@@ -92,7 +88,8 @@ function createApp({
         } catch {
           return sendJSON(res, 401, { ok: false, message: 'Access token is invalid or expired.' });
         }
-        const validation = validateInput(body);
+        const settings = getSettings(db);
+        const validation = validateInput(body, settings.products, settings.departments);
         if (validation.err) return sendJSON(res, 422, { ok: false, message: validation.err });
 
         const result = createReservation(
@@ -127,30 +124,8 @@ function createApp({
         });
       }
 
-      if ((path === '/admin' || path === '/admin/export.csv') && req.method === 'GET') {
-        if (!checkBasicAuth(req, adminUser, adminPass)) return sendUnauthorized(res);
-        const parsed = parseAdminFilters(url.searchParams);
-        if (parsed.err) return sendText(res, 400, parsed.err);
-
-        if (path === '/admin') {
-          const result = queryAdminReservations(db, parsed.ok);
-          return sendText(res, 200, renderAdminPage(result, parsed.ok));
-        }
-
-        const result = queryAdminReservations(db, parsed.ok, true);
-        const csv = buildCSV(result.rows);
-        const headers = {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="trialreservations.csv"',
-          'X-Export-Truncated': String(result.truncated),
-          'Content-Length': Buffer.byteLength(csv),
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin',
-        };
-        res.writeHead(200, headers);
-        return res.end(csv);
+      if (path === '/admin' || path.startsWith('/admin/')) {
+        return await adminRouter(req, res, url);
       }
 
       return sendText(res, 404, 'Not Found');

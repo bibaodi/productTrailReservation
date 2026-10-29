@@ -28,8 +28,11 @@ test('migrates an existing reservations table without losing records', () => {
     const columns = db.prepare('PRAGMA table_info(trialreservations)').all();
     assert.equal(row.hospital, 'Old Hospital');
     assert.equal(row.device_token_id, null);
+    assert.equal(row.product, null);
     assert.ok(columns.some((column) => column.name === 'device_token_id'));
+    assert.ok(columns.some((column) => column.name === 'product'));
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM device_tokens').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM settings').get().n, 0);
   } finally {
     db.close();
   }

@@ -14,11 +14,12 @@ function parseAdminFilters(searchParams) {
   const name = (searchParams.get('name') || '').trim();
   const hospital = (searchParams.get('hospital') || '').trim();
   const department = (searchParams.get('department') || '').trim();
+  const product = (searchParams.get('product') || '').trim();
   const from = (searchParams.get('from') || '').trim();
   const to = (searchParams.get('to') || '').trim();
   const rawPage = searchParams.get('page') || '1';
 
-  if ([name, hospital, department].some((value) => value.length > MAX_SEARCH_LENGTH)) {
+  if ([name, hospital, department, product].some((value) => value.length > MAX_SEARCH_LENGTH)) {
     return { err: 'Search fields must be 100 characters or fewer.' };
   }
   if ((from && !validDate(from)) || (to && !validDate(to))) {
@@ -27,13 +28,13 @@ function parseAdminFilters(searchParams) {
   if (from && to && from > to) return { err: 'Start date must not be after end date.' };
   if (!/^[1-9]\d{0,6}$/.test(rawPage)) return { err: 'Page number is invalid.' };
 
-  return { ok: { name, hospital, department, from, to, page: Number(rawPage) } };
+  return { ok: { name, hospital, department, product, from, to, page: Number(rawPage) } };
 }
 
 function buildWhere(filters) {
   const clauses = [];
   const values = [];
-  for (const field of ['name', 'hospital', 'department']) {
+  for (const field of ['name', 'hospital', 'department', 'product']) {
     if (filters[field]) {
       const escaped = filters[field].replace(/[\\%_]/g, '\\$&');
       clauses.push(`${field} LIKE ? ESCAPE '\\'`);
@@ -62,7 +63,7 @@ function queryAdminReservations(db, filters, exportAll = false) {
 
   if (exportAll) {
     const rows = db.prepare(`
-      SELECT id, hospital, department, name, phone, note, created_at
+      SELECT id, hospital, department, product, name, phone, note, created_at
       FROM trialreservations ${where.sql}
       ORDER BY id DESC
       LIMIT ?
@@ -73,7 +74,7 @@ function queryAdminReservations(db, filters, exportAll = false) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(filters.page, pages);
   const rows = db.prepare(`
-    SELECT id, hospital, department, name, phone, note, created_at
+    SELECT id, hospital, department, product, name, phone, note, created_at
     FROM trialreservations ${where.sql}
     ORDER BY id DESC
     LIMIT ? OFFSET ?

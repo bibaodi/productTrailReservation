@@ -28,6 +28,7 @@ test('WeCom notification escapes untrusted content in every reservation field', 
   notify({
     hospital: '[Hospital](https://evil.test)',
     department: '<@all> **department**',
+    product: '[Probe](https://evil.test)',
     name: '`@all`',
     phone: '+86 13812345678',
     note: '[open](https://evil.test) <@all>',
@@ -38,6 +39,7 @@ test('WeCom notification escapes untrusted content in every reservation field', 
   assert.doesNotMatch(message, /\[Hospital\]\(https:\/\/evil\.test\)|<@all>|\*\*department\*\*|`@all`/);
   assert.match(message, /［Hospital］（https：／／evil．test）/);
   assert.match(message, /＜＠all＞ ＊＊department＊＊/);
+  assert.match(message, /产品：［Probe］（https：／／evil．test）/);
   assert.match(message, /｀＠all｀/);
   assert.match(message, /＋86 13812345678/);
   assert.match(message, /［open］（https：／／evil．test）/);

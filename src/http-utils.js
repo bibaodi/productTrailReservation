@@ -31,6 +31,18 @@ function sendJSON(res, status, value, headers = {}) {
   res.end(buffer);
 }
 
+function sendRedirect(res, status, location) {
+  res.writeHead(status, {
+    Location: location,
+    'Content-Length': 0,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+  });
+  res.end();
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -57,6 +69,17 @@ function readBody(req) {
       if (!settled) reject(error);
     });
   });
+}
+
+async function readForm(req) {
+  const text = await readBody(req);
+  const contentType = req.headers['content-type'] || '';
+  if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(contentType)) {
+    const error = new Error('Content-Type must be application/x-www-form-urlencoded');
+    error.statusCode = 415;
+    throw error;
+  }
+  return new URLSearchParams(text);
 }
 
 async function readJSON(req) {
@@ -86,4 +109,12 @@ function parseErrorResponse(error) {
   return { status, body: { ok: false, message } };
 }
 
-module.exports = { parseErrorResponse, readBody, readJSON, sendJSON, sendText };
+module.exports = {
+  parseErrorResponse,
+  readBody,
+  readForm,
+  readJSON,
+  sendJSON,
+  sendRedirect,
+  sendText,
+};

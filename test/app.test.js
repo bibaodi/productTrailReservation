@@ -7,10 +7,12 @@ const { createApp } = require('../src/app');
 const { openDatabase } = require('../src/database');
 const { QR_IMAGE_URL } = require('../src/pages');
 const { TOKEN_TTL_MS } = require('../src/reservation-service');
+const { DEFAULT_PRODUCTS, DEFAULT_QR_CAPTION } = require('../src/settings');
 
 const reservation = {
   hospital: 'Beijing General Hospital',
   department: '内科',
+  product: DEFAULT_PRODUCTS[0],
   name: '王小明',
   phone: '13812345678',
   note: 'Trial request',
@@ -61,6 +63,26 @@ async function request(baseURL, path, { method = 'GET', token, body, headers = {
 
 function basicAuth() {
   return 'Basic ' + Buffer.from('admin:strong-test-password').toString('base64');
+}
+
+function csrfToken(html) {
+  const match = /name="csrf" value="([^"]+)"/.exec(html);
+  assert.ok(match, 'settings page should include a CSRF token');
+  return match[1];
+}
+
+async function postSettings(baseURL, fields, headers = {}) {
+  const response = await fetch(baseURL + '/admin/settings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: basicAuth(),
+      ...headers,
+    },
+    body: new URLSearchParams(fields).toString(),
+    redirect: 'manual',
+  });
+  return { response, text: await response.text() };
 }
 
 test('creates reservations and gives the browser an opaque token stored only as a hash', async (t) => {
@@ -238,6 +260,136 @@ test('admin query rendering escapes reflected search input', async (t) => {
   assert.equal(response.response.status, 200);
   assert.doesNotMatch(response.text, /value="<script>/);
   assert.match(response.text, /name="hospital" maxlength="100" value="&lt;script&gt;"/);
+});
+
+test('a single product is shown in the header and submitted without a picker', async (t) => {
+  const { baseURL } = await createFixture(t);
+  const home = await request(baseURL, '/');
+  assert.doesNotMatch(home.text, /<select name="product"/);
+  assert.match(home.text, /id="productName"/);
+  assert.match(home.text, new RegExp(
+    '<input type="hidden" name="product" value="' + DEFAULT_PRODUCTS[0] + '">',
+  ));
+
+  const accepted = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: reservation,
+  });
+  assert.equal(accepted.response.status, 200);
+});
+
+test('settings page is authenticated and shows the built-in defaults', async (t) => {
+  const { baseURL } = await createFixture(t);
+  assert.equal((await request(baseURL, '/admin/settings')).response.status, 401);
+
+  const page = await request(baseURL, '/admin/settings', {
+    headers: { Authorization: basicAuth() },
+  });
+  assert.equal(page.response.status, 200);
+  assert.match(page.text, new RegExp(DEFAULT_QR_CAPTION));
+  assert.match(page.text, new RegExp(DEFAULT_PRODUCTS[0]));
+  assert.match(page.text, /name="departments"[^>]*>超声科\n妇产科/);
+  assert.match(page.text, /name="csrf" value="[^"]+"/);
+  assert.match(page.text, /href="\.\.\/admin"/);
+});
+
+test('admin settings update the reservation page and product validation', async (t) => {
+  const { db, baseURL } = await createFixture(t);
+  const page = await request(baseURL, '/admin/settings', {
+    headers: { Authorization: basicAuth() },
+  });
+  const token = csrfToken(page.text);
+
+  const saved = await postSettings(baseURL, {
+    csrf: token,
+    qr_caption: '欢迎关注我们的公众号',
+    departments: '科室甲\r\n科室乙\r\n\r\n科室甲',
+    products: '产品A\r\n产品B\r\n\r\n产品A',
+  });
+  assert.equal(saved.response.status, 303);
+  assert.equal(saved.response.headers.get('location'), 'settings?saved=1');
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'qr_caption'").get().value,
+    '欢迎关注我们的公众号');
+  assert.deepEqual(
+    JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'departments'").get().value),
+    ['科室甲', '科室乙'],
+  );
+  assert.deepEqual(
+    JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'products'").get().value),
+    ['产品A', '产品B'],
+  );
+
+  const home = await request(baseURL, '/');
+  assert.match(home.text, /欢迎关注我们的公众号/);
+  assert.match(home.text, /<option value="科室甲">科室甲<\/option>/);
+  assert.match(home.text, /<option value="产品A">产品A<\/option>/);
+  assert.match(home.text, /<option value="产品B">产品B<\/option>/);
+  assert.doesNotMatch(home.text, /妇产科/);
+  assert.doesNotMatch(home.text, new RegExp(DEFAULT_QR_CAPTION));
+
+  const accepted = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: { ...reservation, department: '科室乙', product: '产品B' },
+  });
+  assert.equal(accepted.response.status, 200);
+  const rejectedProduct = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: { ...reservation, department: '科室乙', product: '不在列表' },
+  });
+  assert.equal(rejectedProduct.response.status, 422);
+  const rejectedDepartment = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: { ...reservation, department: '内科', product: '产品B' },
+  });
+  assert.equal(rejectedDepartment.response.status, 422);
+
+  const savedPage = await request(baseURL, '/admin/settings?saved=1', {
+    headers: { Authorization: basicAuth() },
+  });
+  assert.match(savedPage.text, /Settings saved\./);
+});
+
+test('settings changes reject missing CSRF tokens, foreign origins, and invalid lists', async (t) => {
+  const { db, baseURL } = await createFixture(t);
+  const page = await request(baseURL, '/admin/settings', {
+    headers: { Authorization: basicAuth() },
+  });
+  const token = csrfToken(page.text);
+
+  const noToken = await postSettings(baseURL, { qr_caption: 'x', products: 'A' });
+  assert.equal(noToken.response.status, 403);
+
+  const tampered = await postSettings(baseURL, {
+    csrf: token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A'),
+    qr_caption: 'x',
+    products: 'A',
+  });
+  assert.equal(tampered.response.status, 403);
+
+  const foreignOrigin = await postSettings(baseURL, {
+    csrf: token,
+    qr_caption: 'x',
+    products: 'A',
+  }, { Origin: 'https://evil.test' });
+  assert.equal(foreignOrigin.response.status, 403);
+
+  const blankProducts = await postSettings(baseURL, {
+    csrf: token,
+    qr_caption: 'x',
+    departments: '内科',
+    products: '\n  \n',
+  });
+  assert.equal(blankProducts.response.status, 422);
+  assert.match(blankProducts.text, /At least one product is required/);
+  // Invalid submissions never write partial state.
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM settings').get().n, 0);
+
+  const wrongType = await fetch(baseURL + '/admin/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', Authorization: basicAuth() },
+    body: 'csrf=' + token,
+  });
+  assert.equal(wrongType.status, 415);
 });
 
 test('serves the WeChat official account QR code image', async (t) => {

@@ -1,21 +1,48 @@
 'use strict';
 
-const { PAGE_SIZE } = require('./admin-query');
-const { csvCell, escapeHTML } = require('./safe-output');
+const { escapeHTML } = require('../safe-output');
+const {
+  DEFAULT_DEPARTMENTS,
+  DEFAULT_PRODUCTS,
+  DEFAULT_QR_CAPTION,
+} = require('../settings');
 
 const QR_IMAGE_URL = 'imgs/wechat-official-account-qrcode_for_gh_4b320bf4dce6_1280.jpg';
 
-function renderReservationPage(departments) {
-  const departmentOptions = departments
+function renderReservationPage(
+  departments,
+  { products = DEFAULT_PRODUCTS, qrCaption = DEFAULT_QR_CAPTION } = {},
+) {
+  const departmentChoices = Array.isArray(departments) && departments.length
+    ? departments
+    : DEFAULT_DEPARTMENTS;
+  const productChoices = Array.isArray(products) && products.length ? products : DEFAULT_PRODUCTS;
+  const departmentOptions = departmentChoices
     .map((department) => `<option value="${escapeHTML(department)}">${escapeHTML(department)}</option>`)
     .join('');
+  const productOptions = productChoices
+    .map((product) => `<option value="${escapeHTML(product)}">${escapeHTML(product)}</option>`)
+    .join('');
+  // A single configured product needs no picker: show its name in the header
+  // and submit it through a hidden field.
+  const singleProduct = productChoices.length === 1;
+  const productHeader = singleProduct
+    ? `<p class="product" id="productName">试用产品：<strong>${escapeHTML(productChoices[0])}</strong></p>`
+    : '';
+  const productField = singleProduct
+    ? `<input type="hidden" name="product" value="${escapeHTML(productChoices[0])}">`
+    : `<label>试用产品<span class="req">*</span></label>
+      <select name="product" required>
+        <option value="">请选择产品</option>${productOptions}
+      </select>`;
+  const pageTitle = (singleProduct ? escapeHTML(productChoices[0]) + ' - ' : '') + '产品试用预约';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>产品试用预约</title>
+<title>${pageTitle}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -23,6 +50,8 @@ function renderReservationPage(departments) {
   .wrap { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
   .card { background: #fff; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(31,35,41,.06); }
   h1 { font-size: 20px; text-align: center; margin-bottom: 6px; }
+  .product { font-size: 15px; text-align: center; color: #1f2329; margin: 4px 0 8px; }
+  .product strong { color: #00b96b; }
   .sub { font-size: 13px; color: #8f959e; text-align: center; margin-bottom: 24px; }
   label { display: block; font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
   label .req { color: #f54a45; margin-left: 2px; }
@@ -33,6 +62,7 @@ function renderReservationPage(departments) {
   input:focus, select:focus, textarea:focus { border-color: #00b96b; }
   textarea { resize: vertical; min-height: 76px; }
   .hint { font-size: 12px; color: #8f959e; margin-top: 4px; }
+  .hint.invalid { color: #f54a45; }
   .btn { display: block; width: 100%; margin-top: 20px; border: none; border-radius: 8px;
          background: #00b96b; color: #fff; font-size: 17px; font-weight: 600;
          padding: 13px 0; cursor: pointer; }
@@ -52,6 +82,7 @@ function renderReservationPage(departments) {
 <div class="wrap">
   <div class="card">
     <h1>产品试用预约</h1>
+    ${productHeader}
     <p class="sub" id="subtitle">请留下您的信息，我们会尽快与您联系</p>
     <section id="returningActions" class="returning" hidden>
       <h2 style="font-size:16px;margin-bottom:8px">欢迎回来</h2>
@@ -68,7 +99,7 @@ function renderReservationPage(departments) {
       </div>
       <p id="storageWarning" class="hint" hidden>此浏览器无法保存访问凭证，关闭页面后将无法查看此预约。</p>
       <div class="follow">
-        <p>为了与我们保持更多联系，欢迎关注即时超声公众号</p>
+        <p id="qrCaption">${escapeHTML(qrCaption)}</p>
         <img id="qrcodeImg" class="qrcode" alt="即时超声公众号二维码" width="180" height="180" data-src="${QR_IMAGE_URL}">
       </div>
     </section>
@@ -81,6 +112,7 @@ function renderReservationPage(departments) {
         <option value="">请选择科室</option>
         ${departmentOptions}
       </select>
+      ${productField}
       <label>您的姓名<span class="req">*</span></label>
       <input name="name" type="text" maxlength="20" placeholder="请填写姓名" required>
       <label>联系电话<span class="req">*</span></label>
@@ -90,6 +122,7 @@ function renderReservationPage(departments) {
       <div class="hint">最多 500 字</div>
       <p id="revisionHint" class="hint" hidden>保存后将更新此设备显示的最新预约信息，之前提交的记录仍会保留。</p>
       <button class="btn" type="submit" id="submitBtn">提交预约</button>
+      <p id="saveStateHint" class="hint" hidden></p>
       <div class="err" id="errMsg" role="alert"></div>
       <p class="privacy">提交即表示您同意我们仅将以上信息用于本次试用安排与联系。信息不会被分享给第三方，您可以随时联系我们删除。</p>
     </form>
@@ -105,13 +138,98 @@ function renderReservationPage(departments) {
   var successState = document.getElementById('successState');
   var formTitle = document.getElementById('formTitle');
   var revisionHint = document.getElementById('revisionHint');
+  var saveStateHint = document.getElementById('saveStateHint');
   var subtitle = document.getElementById('subtitle');
   var latestReservation = null;
   var accessToken = null;
+  var formMode = 'create';
+  var originalData = null;
+  var submitting = false;
 
   function showError(message) {
     errMsg.textContent = message;
     errMsg.style.display = 'block';
+  }
+
+  function currentFormData() {
+    return {
+      hospital: form.hospital.value.trim(),
+      department: form.department.value,
+      product: form.product.value,
+      name: form.name.value.trim(),
+      phone: form.phone.value.trim(),
+      note: form.note.value.trim()
+    };
+  }
+
+  function normalizedReservation(item) {
+    return {
+      hospital: (item.hospital || '').trim(),
+      department: item.department || '',
+      // A single product is fixed by the server and has no visible control;
+      // the caller aligns it with the submitted value after rendering.
+      product: item.product || '',
+      name: (item.name || '').trim(),
+      phone: (item.phone || '').trim(),
+      note: (item.note || '').trim()
+    };
+  }
+
+  function sameReservation(a, b) {
+    return a.hospital === b.hospital &&
+      a.department === b.department &&
+      a.product === b.product &&
+      a.name === b.name &&
+      a.phone === b.phone &&
+      a.note === b.note;
+  }
+
+  function validPhone(phone) {
+    if (phone.length > 20 || !/^[0-9+ ()（）-]+$/.test(phone)) return false;
+    var normalized = phone.replace(/[ ()（）-]/g, '');
+    if (normalized.slice(0, 3) === '+86') normalized = normalized.slice(3);
+    else if (normalized.slice(0, 4) === '0086') normalized = normalized.slice(4);
+    return /^(?:1[3-9][0-9]{9}|0[0-9]{2,3}[0-9]{7,8})$/.test(normalized);
+  }
+
+  function validateReservation(data) {
+    if (data.hospital.length <= 2 || data.hospital.length > 50) {
+      return '请填写医院名称（3-50 字）';
+    }
+    if (!data.department) return '请选择科室';
+    if (!data.product) return '请选择产品';
+    if (data.name.length < 2 || data.name.length > 20) {
+      return '请填写姓名（2-20 字）';
+    }
+    if (!validPhone(data.phone)) return '联系电话格式不正确';
+    if (data.note.length > 500) return '说明/建议请控制在 500 字以内';
+    return '';
+  }
+
+  function updateSubmitState() {
+    if (formMode !== 'edit') {
+      submitBtn.disabled = submitting;
+      saveStateHint.hidden = true;
+      return;
+    }
+    var data = currentFormData();
+    var error = validateReservation(data);
+    if (originalData && sameReservation(data, originalData)) {
+      submitBtn.disabled = true;
+      saveStateHint.textContent = '信息未变更，无需保存。';
+      saveStateHint.className = 'hint';
+      saveStateHint.hidden = false;
+      return;
+    }
+    if (error) {
+      submitBtn.disabled = true;
+      saveStateHint.textContent = error;
+      saveStateHint.className = 'hint invalid';
+      saveStateHint.hidden = false;
+      return;
+    }
+    submitBtn.disabled = submitting;
+    saveStateHint.hidden = true;
   }
 
   function showForm(usePrevious) {
@@ -119,6 +237,8 @@ function renderReservationPage(departments) {
     successState.hidden = true;
     form.hidden = false;
     subtitle.hidden = false;
+    formMode = usePrevious ? 'edit' : 'create';
+    originalData = null;
     form.reset();
     formTitle.textContent = usePrevious ? '修改上次预约' : '新建预约';
     submitBtn.textContent = usePrevious ? '保存修改' : '提交预约';
@@ -126,11 +246,21 @@ function renderReservationPage(departments) {
     if (usePrevious && latestReservation) {
       form.hospital.value = latestReservation.hospital;
       form.department.value = latestReservation.department;
+      if (form.product && form.product.tagName === 'SELECT') {
+        form.product.value = latestReservation.product || '';
+      }
       form.name.value = latestReservation.name;
       form.phone.value = latestReservation.phone;
       form.note.value = latestReservation.note || '';
+      originalData = normalizedReservation(latestReservation);
+      if (form.product && form.product.tagName !== 'SELECT') {
+        // The single configured product is not user-editable, so it must not
+        // count as a change on its own.
+        originalData.product = form.product.value;
+      }
     }
     errMsg.style.display = 'none';
+    updateSubmitState();
     form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -211,28 +341,10 @@ function renderReservationPage(departments) {
     showForm(false);
   });
 
-  form.addEventListener('submit', function (event) {
-    event.preventDefault();
-    errMsg.style.display = 'none';
-    var data = {
-      hospital: form.hospital.value.trim(),
-      department: form.department.value,
-      name: form.name.value.trim(),
-      phone: form.phone.value.trim(),
-      note: form.note.value.trim()
-    };
-    if (data.hospital.length <= 2 || data.hospital.length > 50) {
-      showError('请填写医院名称（3-50 字）'); return;
-    }
-    if (data.name.length < 2 || data.name.length > 20) {
-      showError('请填写姓名（2-20 字）'); return;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = '提交中…';
+  function sendReservation(data, allowTokenRetry) {
     var headers = { 'Content-Type': 'application/json' };
     if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
-    fetch('api/reserve', {
+    return fetch('api/reserve', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(data)
@@ -241,6 +353,39 @@ function renderReservationPage(departments) {
         return { status: response.status, body: body };
       });
     }).then(function (result) {
+      if (result.status === 401 && allowTokenRetry) {
+        // The stored credential expired or belongs to a different database.
+        // The server rejected it before saving, so retry once as a new device
+        // instead of making the user tap Submit again.
+        clearAccessToken();
+        return sendReservation(data, false);
+      }
+      return result;
+    });
+  }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    errMsg.style.display = 'none';
+    var data = currentFormData();
+    var validationError = validateReservation(data);
+    if (validationError) {
+      if (formMode === 'edit') {
+        updateSubmitState();
+      } else {
+        showError(validationError);
+      }
+      return;
+    }
+    if (formMode === 'edit' && originalData && sameReservation(data, originalData)) {
+      updateSubmitState();
+      return;
+    }
+
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = '提交中…';
+    sendReservation(data, true).then(function (result) {
       if (result.status === 401) {
         var tokenCleared = clearAccessToken();
         showError('访问凭证已过期，本次未创建预约。请再次提交以使用新凭证创建预约；原记录无法通过此凭证查看。' +
@@ -264,12 +409,16 @@ function renderReservationPage(departments) {
     }).catch(function () {
       showError('网络异常，请检查网络后重试');
     }).finally(function () {
-      submitBtn.disabled = false;
+      submitting = false;
       if (submitBtn.textContent === '提交中…') {
         submitBtn.textContent = revisionHint.hidden ? '提交预约' : '保存修改';
       }
+      updateSubmitState();
     });
   });
+
+  form.addEventListener('input', updateSubmitState);
+  form.addEventListener('change', updateSubmitState);
 
   loadReservations(true);
 })();
@@ -278,109 +427,4 @@ function renderReservationPage(departments) {
 </html>`;
 }
 
-function queryString(filters, page) {
-  const params = new URLSearchParams();
-  if (filters.name) params.set('name', filters.name);
-  if (filters.hospital) params.set('hospital', filters.hospital);
-  if (filters.department) params.set('department', filters.department);
-  if (filters.from) params.set('from', filters.from);
-  if (filters.to) params.set('to', filters.to);
-  if (page > 1) params.set('page', String(page));
-  return '?' + params.toString();
-}
-
-function renderAdminPage(result, filters) {
-  const rows = result.rows.map((row) =>
-    '<tr>' +
-    '<td>' + row.id + '</td>' +
-    '<td>' + escapeHTML(row.hospital) + '</td>' +
-    '<td>' + escapeHTML(row.department || '—') + '</td>' +
-    '<td>' + escapeHTML(row.name) + '</td>' +
-    '<td>' + escapeHTML(row.phone) + '</td>' +
-    '<td>' + escapeHTML(row.note || '—') + '</td>' +
-    '<td>' + escapeHTML(row.created_at) + '</td>' +
-    '</tr>'
-  ).join('');
-  const exportParams = new URLSearchParams();
-  if (filters.name) exportParams.set('name', filters.name);
-  if (filters.hospital) exportParams.set('hospital', filters.hospital);
-  if (filters.department) exportParams.set('department', filters.department);
-  if (filters.from) exportParams.set('from', filters.from);
-  if (filters.to) exportParams.set('to', filters.to);
-  const exportQuery = exportParams.toString();
-  const exportLink = 'admin/export.csv' + (exportQuery ? '?' + exportQuery : '');
-  const previous = result.page > 1
-    ? '<a href="' + queryString(filters, result.page - 1) + '">Previous</a>'
-    : '';
-  const next = result.page < result.pages
-    ? '<a href="' + queryString(filters, result.page + 1) + '">Next</a>'
-    : '';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reservation Admin</title>
-<style>
-  body { font-family: sans-serif; margin: 24px; color: #1f2329; }
-  h1 { font-size: 20px; }
-  form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 16px 0; }
-  label { display: grid; gap: 4px; font-size: 13px; }
-  input, button { padding: 8px; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; }
-  th, td { border: 1px solid #e5e6eb; padding: 8px 10px; text-align: left; word-break: break-word; }
-  th { background: #f7f8fa; }
-  .actions, .pages { margin: 14px 0; display: flex; gap: 16px; align-items: center; }
-  .button-link { display: inline-block; padding: 9px 14px; border: 1px solid #007a52;
-    border-radius: 5px; background: #008a52; color: #fff; text-decoration: none; }
-  .button-link:hover { background: #006f43; }
-  .empty { padding: 32px; text-align: center; color: #8f959e; }
-</style>
-</head>
-<body>
-<h1>Reservation Admin</h1>
-<p>${result.total} matching reservations</p>
-<form method="get">
-  <label>Name
-    <input name="name" maxlength="100" value="${escapeHTML(filters.name)}">
-  </label>
-  <label>Hospital
-    <input name="hospital" maxlength="100" value="${escapeHTML(filters.hospital)}">
-  </label>
-  <label>Department
-    <input name="department" maxlength="100" value="${escapeHTML(filters.department)}">
-  </label>
-  <label>From date
-    <input type="date" name="from" value="${escapeHTML(filters.from)}">
-  </label>
-  <label>To date
-    <input type="date" name="to" value="${escapeHTML(filters.to)}">
-  </label>
-  <button type="submit">Search</button>
-  <a href="?">Clear</a>
-</form>
-<div class="actions"><a class="button-link" href="${escapeHTML(exportLink)}">Export filtered CSV (up to 10,000 rows)</a></div>
-<table>
-  <thead><tr><th>#</th><th>Hospital</th><th>Department</th><th>Name</th><th>Phone</th><th>Notes</th><th>Created</th></tr></thead>
-  <tbody>${rows || '<tr><td class="empty" colspan="7">No reservations found.</td></tr>'}</tbody>
-</table>
-<nav class="pages" aria-label="Pagination">
-  ${previous}<span>Page ${result.page} of ${result.pages}; ${PAGE_SIZE} per page</span>${next}
-</nav>
-</body>
-</html>`;
-}
-
-function buildCSV(rows) {
-  const header = ['ID', 'Hospital', 'Department', 'Name', 'Phone', 'Notes', 'Created at'];
-  const lines = [header.map(csvCell).join(',')];
-  for (const row of rows) {
-    lines.push([
-      row.id, row.hospital, row.department || '', row.name, row.phone, row.note || '', row.created_at,
-    ].map(csvCell).join(','));
-  }
-  return '\uFEFF' + lines.join('\r\n');
-}
-
-module.exports = { buildCSV, QR_IMAGE_URL, renderAdminPage, renderReservationPage };
+module.exports = { QR_IMAGE_URL, renderReservationPage };

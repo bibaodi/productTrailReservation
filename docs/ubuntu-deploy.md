@@ -85,19 +85,26 @@ curl -s http://127.0.0.1:8787/healthz     # 应返回 {"ok":true}
 
 ### 5. 更新方式：开发机构建，推送镜像到服务器（推荐）
 
-服务器上不需要放代码、不需要装 Node，只需要 `docker-compose.yml`、`.env`、`src/trialreservation.env`、`data/`。compose 中同时声明了 `image:` 与 `build:`：镜像已存在就直接用，不存在才本地构建。
+服务器上不需要放代码、不需要装 Node，只需要 `docker-compose.yml`、`.env`、`src/trialreservation.env`、`data/`。compose 中同时声明了 `image:` 与 `build:`，镜像使用固定的本地 tag `trialreservation:local`：服务器上已有该镜像就直接复用，不存在才本地构建；compose 不会因为版本变化去远程拉取不存在的 tag。
 
-compose 本身不能执行 `git` 命令，只能插值环境变量；因此 `docker-compose.yml` 写成 `image: "trialreservation:${IMAGE_TAG:?...}"`，由 `.env` 提供 `IMAGE_TAG`。`scritps/build-save-image.sh` 会自动读取 `git describe --tags --abbrev=0`、构建同名镜像，并生成 `.env`，因此无需手动改版本号：
+compose 本身不能执行 `git` 命令，只能插值环境变量。git 版本号现在只作为元数据：`scritps/build-save-image.sh` 读取 `git describe --tags --abbrev=0`，把版本写入 `.env` 的 `IMAGE_TAG`（供 compose 的版本 label 使用），同时额外打一个 `trialreservation:<version>` tag 便于回滚：
 
 ```bash
 git tag v1.2              # 发布前先给当前提交打 tag
 scritps/build-save-image.sh
 ```
 
-该脚本会完成构建、`docker save` 压缩、并把镜像包、`.env` 和 `docker-compose.yml` 一起传到服务器 `/tmp`。服务器上按脚本末尾的注释执行即可：
+脚本会：
+
+1. 构建 `trialreservation:local`，并打上 `trialreservation:<version>`；
+2. 构建时不传 `--pull`，复用本机 `node:24-alpine` 基础镜像缓存，不会每次联网拉取基础镜像；
+3. 用 `docker save` 把两个 tag 打成 `trialreservation.tar.gz`（两个 tag 指向同一镜像，不重复占空间）；
+4. 把镜像包、`.env` 和 `docker-compose.yml` 一起传到服务器 `/tmp`。
+
+服务器上按脚本末尾的注释执行：
 
 ```bash
-gunzip -c trialreservation.tar.gz | sudo docker load
+gunzip -c trialreservation.tar.gz | sudo docker load   # 同时生成 local 和版本 tag
 sudo cp /tmp/docker-compose.yml /opt/trialreservation/docker-compose.yml
 sudo cp /tmp/.env /opt/trialreservation/.env
 cd /opt/trialreservation
@@ -107,7 +114,15 @@ sudo docker compose up -d --no-build --force-recreate
 说明：
 
 - `docker save | ssh | docker load` 不经过第三方仓库，不受国内访问 Docker Hub 不稳定的影响；镜像约 150MB，压缩后传输通常几十秒。
-- 需要回滚时，在服务器 `.env` 里把 `IMAGE_TAG` 改成已加载的旧 tag（如 `IMAGE_TAG=v1.0`），再 `docker compose up -d --no-build --force-recreate`；或切回旧 tag 重新运行脚本。
+- 固定 tag 意味着每次发布都会覆盖 `trialreservation:local`；历史版本仍以 `trialreservation:vX.Y` 保留在服务器上。回滚时把旧版本重新打成 local 再重建容器：
+
+  ```bash
+  sudo docker tag trialreservation:v1.1 trialreservation:local
+  cd /opt/trialreservation && sudo docker compose up -d --no-build --force-recreate
+  ```
+
+- 长期使用后可用 `sudo docker image prune -f` 清理被覆盖后留下的悬空层。
+- `IMAGE_TAG` 现在只是版本标签；即使它的值变了，compose 也不会据此拉取镜像。
 - 以后镜像多、服务器多时，再考虑在服务器自建私有 registry（`registry:2` 容器 + nginx 反代），或接入 GitHub Actions 自动构建推送。
 
 ## 方式二：裸机部署（备选）

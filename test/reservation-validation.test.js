@@ -2,13 +2,21 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DEPARTMENTS, validPhone, validateInput } = require('../src/reservation-validation');
+const {
+  DEPARTMENTS,
+  validPhone,
+  validateInput,
+} = require('../src/reservation-validation');
+const { DEFAULT_PRODUCTS } = require('../src/settings');
 const { csvCell, escapeHTML } = require('../src/safe-output');
+
+const PRODUCT = DEFAULT_PRODUCTS[0];
 
 function validReservation(overrides = {}) {
   return {
     hospital: '北京协和医院',
     department: '内科',
+    product: PRODUCT,
     name: '王小明',
     phone: '13812345678',
     note: '',
@@ -20,6 +28,7 @@ test('accepts a complete reservation and trims surrounding whitespace', () => {
   assert.deepEqual(validateInput(validReservation({
     hospital: '  北京协和医院  ',
     department: ' 内科 ',
+    product: '  ' + PRODUCT + '  ',
     name: ' 王小明 ',
     phone: ' 13812345678 ',
     note: '  预约试用  ',
@@ -27,6 +36,7 @@ test('accepts a complete reservation and trims surrounding whitespace', () => {
     ok: {
       hospital: '北京协和医院',
       department: '内科',
+      product: PRODUCT,
       name: '王小明',
       phone: '13812345678',
       note: '预约试用',
@@ -62,6 +72,29 @@ test('requires a listed department', () => {
   assert.ok(validateInput(validReservation({ department: '' })).err);
   assert.ok(validateInput(validReservation({ department: '未知科室' })).err);
   assert.ok(validateInput(validReservation({ department: '<script>alert(1)</script>' })).err);
+});
+
+test('requires a product from the configured list', () => {
+  assert.ok(validateInput(validReservation({ product: '' })).err);
+  assert.ok(validateInput(validReservation({ product: '未知产品' })).err);
+  assert.ok(validateInput(validReservation({ product: '<script>alert(1)</script>' })).err);
+  assert.deepEqual(
+    validateInput(validReservation({ product: '产品B' }), ['产品A', '产品B']).ok.product,
+    '产品B',
+  );
+  assert.ok(validateInput(validReservation({ product: '产品C' }), ['产品A', '产品B']).err);
+  // An empty override must never silently disable the required field.
+  assert.ok(validateInput(validReservation(), []).ok);
+});
+
+test('requires a department from the configured list', () => {
+  assert.deepEqual(
+    validateInput(validReservation({ department: '新科室' }), undefined, ['新科室']).ok.department,
+    '新科室',
+  );
+  assert.ok(validateInput(validReservation({ department: '内科' }), undefined, ['新科室']).err);
+  // An empty override must never silently disable the required field.
+  assert.ok(validateInput(validReservation({ department: '内科' }), undefined, []).ok);
 });
 
 test('accepts valid mainland mobile and landline formats', () => {

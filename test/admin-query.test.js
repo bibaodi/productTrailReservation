@@ -6,15 +6,16 @@ const { parseAdminFilters } = require('../src/admin-query');
 
 test('parses empty and valid admin filters', () => {
   assert.deepEqual(parseAdminFilters(new URLSearchParams()), {
-    ok: { name: '', hospital: '', department: '', from: '', to: '', page: 1 },
+    ok: { name: '', hospital: '', department: '', product: '', from: '', to: '', page: 1 },
   });
   assert.deepEqual(parseAdminFilters(new URLSearchParams(
-    'name=Jane&hospital=clinic&department=cardiology&from=2026-01-01&to=2026-01-31&page=2'
+    'name=Jane&hospital=clinic&department=cardiology&product=probe&from=2026-01-01&to=2026-01-31&page=2'
   )), {
     ok: {
       name: 'Jane',
       hospital: 'clinic',
       department: 'cardiology',
+      product: 'probe',
       from: '2026-01-01',
       to: '2026-01-31',
       page: 2,
@@ -32,6 +33,7 @@ test('rejects invalid dates, reversed ranges, oversized search, and invalid page
     'page=1.5',
     'page=10000000',
     'name=' + 'x'.repeat(101),
+    'product=' + 'x'.repeat(101),
   ]) {
     assert.ok(parseAdminFilters(new URLSearchParams(query)).err, query);
   }

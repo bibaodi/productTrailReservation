@@ -1,6 +1,7 @@
 'use strict';
 
 const { DatabaseSync } = require('node:sqlite');
+const { migrateLegacySettings } = require('./settings');
 
 function initializeDatabase(db) {
   db.exec(`
@@ -21,12 +22,22 @@ function initializeDatabase(db) {
       expires_at  INTEGER NOT NULL,
       created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key         TEXT PRIMARY KEY,
+      value       TEXT NOT NULL,
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
   `);
 
   const columns = db.prepare('PRAGMA table_info(trialreservations)').all();
   if (!columns.some((column) => column.name === 'device_token_id')) {
     db.exec('ALTER TABLE trialreservations ADD COLUMN device_token_id INTEGER');
   }
+  if (!columns.some((column) => column.name === 'product')) {
+    db.exec('ALTER TABLE trialreservations ADD COLUMN product TEXT');
+  }
+
+  migrateLegacySettings(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_trialreservations_device_token

@@ -1,9 +1,12 @@
 services:
   trialreservation:
-    # 服务器上已有该镜像时直接使用，不触发构建
-    # IMAGE_TAG is written to .env by scritps/build-save-image.sh from the repo's git tag
-    # (compose can only interpolate variables, it cannot run git).
-    image: "trialreservation:${IMAGE_TAG:?IMAGE_TAG is not set; run scritps/build-save-image.sh or add IMAGE_TAG=... to .env}"
+    # 固定本地 tag：服务器上已有该镜像时直接复用，不会尝试远程拉取。
+    # IMAGE_TAG 仅用于版本标签，由 scritps/build-save-image.sh 从 git tag 写入 .env
+    # （compose 只能插值变量，不能执行 git）。
+    # image: "trialreservation:${IMAGE_TAG:?IMAGE_TAG is not set; run scritps/build-save-image.sh or add IMAGE_TAG=... to .env}"
+    image: "trialreservation:local"
+    labels:
+      - "org.opencontainers.image.version=${IMAGE_TAG:?IMAGE_TAG is not set; run scritps/build-save-image.sh or add IMAGE_TAG=... to .env}"
     build: .                    # 镜像不存在时（开发机）才按 Dockerfile 构建
     container_name: trialreservation
     restart: unless-stopped

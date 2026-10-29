@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const RESERVATION_COLUMNS = 'id, hospital, department, name, phone, note, created_at';
+const RESERVATION_COLUMNS = 'id, hospital, department, product, name, phone, note, created_at';
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -50,11 +50,12 @@ function createReservation(db, reservation, userAgent, token, now = Date.now()) 
 
     const result = db.prepare(`
       INSERT INTO trialreservations
-        (hospital, department, name, phone, note, user_agent, device_token_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (hospital, department, product, name, phone, note, user_agent, device_token_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       reservation.hospital,
       reservation.department,
+      reservation.product,
       reservation.name,
       reservation.phone,
       reservation.note,

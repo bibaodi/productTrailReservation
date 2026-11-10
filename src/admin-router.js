@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseAdminFilters, queryAdminReservations } = require('./admin-query');
+const { listFilterProducts, parseAdminFilters, queryAdminReservations } = require('./admin-query');
 const { checkBasicAuth } = require('./auth');
 const { createCSRF } = require('./csrf');
 const { readForm, sendRedirect, sendText } = require('./http-utils');
@@ -37,7 +37,12 @@ function createAdminRouter({ db, adminUser = 'admin', adminPass = '', now = Date
 
     if (url.pathname === '/admin') {
       const result = queryAdminReservations(db, parsed.ok);
-      return sendText(res, 200, renderAdminPage(result, parsed.ok));
+      const settings = getSettings(db);
+      const products = listFilterProducts(db, [
+        ...settings.products,
+        ...settings.demoProducts,
+      ]);
+      return sendText(res, 200, renderAdminPage(result, parsed.ok, { products }));
     }
 
     const result = queryAdminReservations(db, parsed.ok, true);
@@ -81,10 +86,17 @@ function createAdminRouter({ db, adminUser = 'admin', adminPass = '', now = Date
         'The form has expired or is invalid. Please reload the settings page and try again.');
     }
 
+    const current = getSettings(db);
     const submitted = {
       qrCaption: form.get('qr_caption') || '',
       departments: form.get('departments') || '',
       products: form.get('products') || '',
+      // A settings page loaded before the demo fields existed still submits a
+      // valid form; keep the stored demo configuration in that case.
+      demoProducts: form.has('demo_products')
+        ? (form.get('demo_products') || '')
+        : current.demoProducts.join('\n'),
+      demoNotice: form.has('demo_notice') ? (form.get('demo_notice') || '') : current.demoNotice,
     };
     const validation = validateSettings(submitted);
     if (validation.err) {

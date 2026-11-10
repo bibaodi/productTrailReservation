@@ -15,6 +15,7 @@ function parseAdminFilters(searchParams) {
   const hospital = (searchParams.get('hospital') || '').trim();
   const department = (searchParams.get('department') || '').trim();
   const product = (searchParams.get('product') || '').trim();
+  const type = (searchParams.get('type') || '').trim();
   const from = (searchParams.get('from') || '').trim();
   const to = (searchParams.get('to') || '').trim();
   const rawPage = searchParams.get('page') || '1';
@@ -22,24 +23,37 @@ function parseAdminFilters(searchParams) {
   if ([name, hospital, department, product].some((value) => value.length > MAX_SEARCH_LENGTH)) {
     return { err: 'Search fields must be 100 characters or fewer.' };
   }
+  if (type && type !== 'trial' && type !== 'demo') {
+    return { err: 'Type filter must be trial or demo.' };
+  }
   if ((from && !validDate(from)) || (to && !validDate(to))) {
     return { err: 'Dates must use the YYYY-MM-DD format.' };
   }
   if (from && to && from > to) return { err: 'Start date must not be after end date.' };
   if (!/^[1-9]\d{0,6}$/.test(rawPage)) return { err: 'Page number is invalid.' };
 
-  return { ok: { name, hospital, department, product, from, to, page: Number(rawPage) } };
+  return { ok: { name, hospital, department, product, type, from, to, page: Number(rawPage) } };
 }
 
 function buildWhere(filters) {
   const clauses = [];
   const values = [];
-  for (const field of ['name', 'hospital', 'department', 'product']) {
+  for (const field of ['name', 'hospital', 'department']) {
     if (filters[field]) {
       const escaped = filters[field].replace(/[\\%_]/g, '\\$&');
       clauses.push(`${field} LIKE ? ESCAPE '\\'`);
       values.push('%' + escaped + '%');
     }
+  }
+  // The admin UI submits an exact product from a dropdown, and the type is a
+  // fixed key, so both use equality rather than substring matching.
+  if (filters.product) {
+    clauses.push('product = ?');
+    values.push(filters.product);
+  }
+  if (filters.type) {
+    clauses.push('type = ?');
+    values.push(filters.type);
   }
   if (filters.from) {
     clauses.push('created_at >= ?');
@@ -55,6 +69,25 @@ function buildWhere(filters) {
   };
 }
 
+// Configured products appear first; products recorded by older reservations
+// remain selectable so those records stay filterable after a settings change.
+function listFilterProducts(db, configured = []) {
+  const rows = db.prepare(`
+    SELECT DISTINCT product FROM trialreservations
+    WHERE product IS NOT NULL AND product <> ''
+    ORDER BY product
+  `).all();
+  const products = [];
+  const seen = new Set();
+  for (const product of [...configured, ...rows.map((row) => row.product)]) {
+    if (typeof product === 'string' && product && !seen.has(product)) {
+      seen.add(product);
+      products.push(product);
+    }
+  }
+  return products;
+}
+
 function queryAdminReservations(db, filters, exportAll = false) {
   const where = buildWhere(filters);
   const total = Number(db.prepare(
@@ -63,7 +96,7 @@ function queryAdminReservations(db, filters, exportAll = false) {
 
   if (exportAll) {
     const rows = db.prepare(`
-      SELECT id, hospital, department, product, name, phone, note, created_at
+      SELECT id, hospital, department, product, type, name, phone, note, created_at
       FROM trialreservations ${where.sql}
       ORDER BY id DESC
       LIMIT ?
@@ -74,7 +107,7 @@ function queryAdminReservations(db, filters, exportAll = false) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(filters.page, pages);
   const rows = db.prepare(`
-    SELECT id, hospital, department, product, name, phone, note, created_at
+    SELECT id, hospital, department, product, type, name, phone, note, created_at
     FROM trialreservations ${where.sql}
     ORDER BY id DESC
     LIMIT ? OFFSET ?
@@ -85,6 +118,7 @@ function queryAdminReservations(db, filters, exportAll = false) {
 module.exports = {
   MAX_EXPORT_ROWS,
   PAGE_SIZE,
+  listFilterProducts,
   parseAdminFilters,
   queryAdminReservations,
 };

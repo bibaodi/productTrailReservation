@@ -7,7 +7,7 @@ const { createApp } = require('../src/app');
 const { openDatabase } = require('../src/database');
 const { QR_IMAGE_URL } = require('../src/pages');
 const { TOKEN_TTL_MS } = require('../src/reservation-service');
-const { DEFAULT_PRODUCTS, DEFAULT_QR_CAPTION } = require('../src/settings');
+const { DEFAULT_PRODUCTS, DEFAULT_QR_CAPTION, DEFAULT_DEMO_PRODUCTS } = require('../src/settings');
 
 const reservation = {
   hospital: 'Beijing General Hospital',
@@ -278,6 +278,112 @@ test('a single product is shown in the header and submitted without a picker', a
   assert.equal(accepted.response.status, 200);
 });
 
+test('serves a demo page selected by the type query parameter', async (t) => {
+  const { baseURL } = await createFixture(t);
+  const demo = await request(baseURL, '/?type=demo');
+  assert.equal(demo.response.status, 200);
+  assert.match(demo.text, /<h1>产品演示预约<\/h1>/);
+  assert.match(demo.text, /演示产品：<strong>住院医师规范化培训系统<\/strong>/);
+  assert.match(demo.text, /id="noteNotice"/);
+  assert.match(demo.text, /var RESERVATION_TYPE = "demo"/);
+  assert.match(demo.text, /本次演示安排/);
+
+  const trial = await request(baseURL, '/?type=trial');
+  assert.equal(trial.response.status, 200);
+  assert.match(trial.text, /<h1>产品试用预约<\/h1>/);
+  assert.doesNotMatch(trial.text, /id="noteNotice"/);
+
+  assert.equal((await request(baseURL, '/?type=unknown')).response.status, 404);
+});
+
+test('demo reservations use the demo product list and stay separate from trial records', async (t) => {
+  const { db, baseURL } = await createFixture(t);
+  const demoReservation = {
+    ...reservation,
+    type: 'demo',
+    product: '住院医师规范化培训系统',
+  };
+  const created = await request(baseURL, '/api/reserve', { method: 'POST', body: demoReservation });
+  assert.equal(created.response.status, 200);
+  const token = created.body.accessToken;
+  assert.equal(
+    db.prepare('SELECT type FROM trialreservations WHERE id = ?').get(created.body.id).type,
+    'demo',
+  );
+
+  // The trial product is rejected when the submission declares the demo type.
+  const wrongProduct = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    token,
+    body: { ...demoReservation, product: reservation.product },
+  });
+  assert.equal(wrongProduct.response.status, 422);
+
+  const demoList = await request(baseURL, '/api/reservations?type=demo', { token });
+  assert.equal(demoList.body.reservations.length, 1);
+  assert.equal(demoList.body.reservations[0].id, created.body.id);
+  const trialList = await request(baseURL, '/api/reservations?type=trial', { token });
+  assert.equal(trialList.body.reservations.length, 0);
+
+  // A trial submission from the same browser does not replace the demo record.
+  const trialCreated = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    token,
+    body: reservation,
+  });
+  assert.equal(trialCreated.response.status, 200);
+  const trialAfter = await request(baseURL, '/api/reservations?type=trial', { token });
+  assert.equal(trialAfter.body.reservations[0].id, trialCreated.body.id);
+  const demoAfter = await request(baseURL, '/api/reservations?type=demo', { token });
+  assert.equal(demoAfter.body.reservations[0].id, created.body.id);
+
+  const invalidType = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: { ...reservation, type: 'other' },
+  });
+  assert.equal(invalidType.response.status, 422);
+  assert.equal((await request(baseURL, '/api/reservations?type=other', { token })).response.status, 400);
+});
+
+test('admin filters reservations by product dropdown and type and exports the type', async (t) => {
+  const { db, baseURL } = await createFixture(t);
+  const insert = db.prepare(`
+    INSERT INTO trialreservations
+      (hospital, department, product, type, name, phone)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  insert.run('Hospital One', '内科', '产品A', 'trial', 'Trial User', '13812345678');
+  insert.run('Hospital Two', '内科', '住院医师规范化培训系统', 'demo', 'Demo User', '13812345678');
+  const auth = { headers: { Authorization: basicAuth() } };
+
+  const all = await request(baseURL, '/admin', auth);
+  assert.match(all.text, /<th>Type<\/th>/);
+  assert.match(all.text, /<select name="product">/);
+  assert.match(all.text, /<option value="产品A">产品A<\/option>/);
+  assert.match(all.text, /<option value="住院医师规范化培训系统">/);
+  assert.match(all.text, /<select name="type">/);
+
+  const demo = await request(baseURL, '/admin?type=demo', auth);
+  assert.match(demo.text, /Demo User/);
+  assert.doesNotMatch(demo.text, /Trial User/);
+  assert.match(demo.text, /<option value="demo" selected>演示<\/option>/);
+
+  const byProduct = await request(
+    baseURL,
+    '/admin?product=' + encodeURIComponent('住院医师规范化培训系统'),
+    auth,
+  );
+  assert.match(byProduct.text, /Demo User/);
+  assert.doesNotMatch(byProduct.text, /Trial User/);
+
+  const csv = await request(baseURL, '/admin/export.csv?type=demo', auth);
+  assert.match(csv.text, /Type/);
+  assert.match(csv.text, /演示/);
+  assert.doesNotMatch(csv.text, /Trial User/);
+
+  assert.equal((await request(baseURL, '/admin?type=other', auth)).response.status, 400);
+});
+
 test('settings page is authenticated and shows the built-in defaults', async (t) => {
   const { baseURL } = await createFixture(t);
   assert.equal((await request(baseURL, '/admin/settings')).response.status, 401);
@@ -288,6 +394,8 @@ test('settings page is authenticated and shows the built-in defaults', async (t)
   assert.equal(page.response.status, 200);
   assert.match(page.text, new RegExp(DEFAULT_QR_CAPTION));
   assert.match(page.text, new RegExp(DEFAULT_PRODUCTS[0]));
+  assert.match(page.text, new RegExp(DEFAULT_DEMO_PRODUCTS[0]));
+  assert.match(page.text, /name="demo_notice"[^>]*>预约产品演示/);
   assert.match(page.text, /name="departments"[^>]*>超声科\n妇产科/);
   assert.match(page.text, /name="csrf" value="[^"]+"/);
   assert.match(page.text, /href="\.\.\/admin"/);
@@ -305,6 +413,8 @@ test('admin settings update the reservation page and product validation', async 
     qr_caption: '欢迎关注我们的公众号',
     departments: '科室甲\r\n科室乙\r\n\r\n科室甲',
     products: '产品A\r\n产品B\r\n\r\n产品A',
+    demo_products: '演示产品A\r\n演示产品B\r\n\r\n演示产品A',
+    demo_notice: '演示提示文字',
   });
   assert.equal(saved.response.status, 303);
   assert.equal(saved.response.headers.get('location'), 'settings?saved=1');
@@ -318,6 +428,12 @@ test('admin settings update the reservation page and product validation', async 
     JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'products'").get().value),
     ['产品A', '产品B'],
   );
+  assert.deepEqual(
+    JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'demo_products'").get().value),
+    ['演示产品A', '演示产品B'],
+  );
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'demo_notice'").get().value,
+    '演示提示文字');
 
   const home = await request(baseURL, '/');
   assert.match(home.text, /欢迎关注我们的公众号/);
@@ -326,17 +442,39 @@ test('admin settings update the reservation page and product validation', async 
   assert.match(home.text, /<option value="产品B">产品B<\/option>/);
   assert.doesNotMatch(home.text, /妇产科/);
   assert.doesNotMatch(home.text, new RegExp(DEFAULT_QR_CAPTION));
+  assert.doesNotMatch(home.text, /演示提示文字/);
+
+  const demoPage = await request(baseURL, '/?type=demo');
+  assert.match(demoPage.text, /<option value="演示产品A">演示产品A<\/option>/);
+  assert.match(demoPage.text, /<option value="演示产品B">演示产品B<\/option>/);
+  assert.match(demoPage.text, /<p class="note-notice" id="noteNotice"><strong>演示提示文字<\/strong><\/p>/);
+  assert.doesNotMatch(demoPage.text, /<option value="产品A">/);
 
   const accepted = await request(baseURL, '/api/reserve', {
     method: 'POST',
     body: { ...reservation, department: '科室乙', product: '产品B' },
   });
   assert.equal(accepted.response.status, 200);
+  const demoAccepted = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: {
+      ...reservation,
+      type: 'demo',
+      department: '科室乙',
+      product: '演示产品B',
+    },
+  });
+  assert.equal(demoAccepted.response.status, 200);
   const rejectedProduct = await request(baseURL, '/api/reserve', {
     method: 'POST',
     body: { ...reservation, department: '科室乙', product: '不在列表' },
   });
   assert.equal(rejectedProduct.response.status, 422);
+  const rejectedDemoProduct = await request(baseURL, '/api/reserve', {
+    method: 'POST',
+    body: { ...reservation, type: 'demo', department: '科室乙', product: '产品B' },
+  });
+  assert.equal(rejectedDemoProduct.response.status, 422);
   const rejectedDepartment = await request(baseURL, '/api/reserve', {
     method: 'POST',
     body: { ...reservation, department: '内科', product: '产品B' },

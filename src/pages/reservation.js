@@ -1,6 +1,7 @@
 'use strict';
 
 const { escapeHTML } = require('../safe-output');
+const { DEFAULT_TYPE, getReservationType } = require('../reservation-types');
 const {
   DEFAULT_DEPARTMENTS,
   DEFAULT_PRODUCTS,
@@ -11,8 +12,14 @@ const QR_IMAGE_URL = 'imgs/wechat-official-account-qrcode_for_gh_4b320bf4dce6_12
 
 function renderReservationPage(
   departments,
-  { products = DEFAULT_PRODUCTS, qrCaption = DEFAULT_QR_CAPTION } = {},
+  {
+    products = DEFAULT_PRODUCTS,
+    qrCaption = DEFAULT_QR_CAPTION,
+    type = DEFAULT_TYPE,
+    noteNotice = '',
+  } = {},
 ) {
+  const typeConfig = getReservationType(type);
   const departmentChoices = Array.isArray(departments) && departments.length
     ? departments
     : DEFAULT_DEPARTMENTS;
@@ -27,15 +34,21 @@ function renderReservationPage(
   // and submit it through a hidden field.
   const singleProduct = productChoices.length === 1;
   const productHeader = singleProduct
-    ? `<p class="product" id="productName">试用产品：<strong>${escapeHTML(productChoices[0])}</strong></p>`
+    ? `<p class="product" id="productName">${escapeHTML(typeConfig.productLabel)}：<strong>${escapeHTML(productChoices[0])}</strong></p>`
     : '';
   const productField = singleProduct
     ? `<input type="hidden" name="product" value="${escapeHTML(productChoices[0])}">`
-    : `<label>试用产品<span class="req">*</span></label>
+    : `<label>${escapeHTML(typeConfig.productLabel)}<span class="req">*</span></label>
       <select name="product" required>
         <option value="">请选择产品</option>${productOptions}
       </select>`;
-  const pageTitle = (singleProduct ? escapeHTML(productChoices[0]) + ' - ' : '') + '产品试用预约';
+  const pageTitle = (singleProduct ? escapeHTML(productChoices[0]) + ' - ' : '') + typeConfig.title;
+  // The demo page shows the attention text below the note box. It is a static
+  // callout, not pre-filled content, so the user's note starts empty.
+  const noticeText = typeConfig.key === 'demo' ? noteNotice : '';
+  const noticeBlock = noticeText
+    ? `<p class="note-notice" id="noteNotice"><strong>${escapeHTML(noticeText)}</strong></p>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -47,41 +60,67 @@ function renderReservationPage(
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
          background: #f2f4f7; color: #1f2329; min-height: 100vh; }
-  .wrap { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
-  .card { background: #fff; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(31,35,41,.06); }
-  h1 { font-size: 20px; text-align: center; margin-bottom: 6px; }
-  .product { font-size: 15px; text-align: center; color: #1f2329; margin: 4px 0 8px; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 16px 12px 28px; }
+  .card { background: #fff; border-radius: 12px; padding: 20px 16px; box-shadow: 0 2px 8px rgba(31,35,41,.06); }
+  h1 { font-size: 19px; text-align: center; margin-bottom: 4px; }
+  .product { font-size: 15px; text-align: center; color: #1f2329; margin: 3px 0 6px; }
   .product strong { color: #00b96b; }
-  .sub { font-size: 13px; color: #8f959e; text-align: center; margin-bottom: 24px; }
-  label { display: block; font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
+  .sub { font-size: 13px; color: #8f959e; text-align: center; margin-bottom: 16px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 5px; }
   label .req { color: #f54a45; margin-left: 2px; }
   input, select, textarea { width: 100%; border: 1px solid #dcdfe6; border-radius: 8px;
-         padding: 11px 12px; font-size: 16px; background: #fff; color: #1f2329; outline: none;
+         padding: 10px 12px; font-size: 16px; background: #fff; color: #1f2329; outline: none;
          -webkit-appearance: none; appearance: none; }
   select { background-image: none; }
   input:focus, select:focus, textarea:focus { border-color: #00b96b; }
-  textarea { resize: vertical; min-height: 76px; }
-  .hint { font-size: 12px; color: #8f959e; margin-top: 4px; }
+  textarea { resize: none; }
+  .note-field { position: relative; }
+  .note-field textarea { height: 84px; overflow-y: auto; line-height: 1.5; }
+  .note-field.has-expand textarea { padding-right: 46px; }
+  textarea::placeholder { font-size: 14px; color: #8f959e; }
+  .note-expand { position: absolute; right: 6px; top: 6px; width: 30px; height: 30px;
+         display: inline-flex; align-items: center; justify-content: center;
+         border: 1px solid #e5e6eb; border-radius: 6px; background: rgba(255,255,255,.95);
+         color: #4e5969; cursor: pointer; padding: 0; font-size: 0; }
+  .note-expand[hidden] { display: none; }
+  .note-expand:active { background: #eef0f3; }
+  .note-notice { margin-top: 8px; padding: 9px 11px; border-radius: 8px;
+         background: #fff7e6; border: 1px solid #f0b429; color: #8a5a00;
+         font-size: 13px; line-height: 1.6; font-weight: 700; }
+  .hint { font-size: 12px; color: #8f959e; margin-top: 3px; }
   .hint.invalid { color: #f54a45; }
-  .btn { display: block; width: 100%; margin-top: 20px; border: none; border-radius: 8px;
+  .btn { display: block; width: 100%; margin-top: 16px; border: none; border-radius: 8px;
          background: #00b96b; color: #fff; font-size: 17px; font-weight: 600;
-         padding: 13px 0; cursor: pointer; }
+         padding: 12px 0; cursor: pointer; }
   .btn:disabled { opacity: .6; }
   .secondary { background: #eef0f3; color: #1f2329; }
   .err { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; }
   .err { background: #fef1f1; color: #f54a45; }
-  .privacy { margin-top: 20px; font-size: 12px; color: #8f959e; line-height: 1.7; }
+  .privacy { margin-top: 14px; font-size: 11px; color: #8f959e; line-height: 1.6; }
   .returning, .success { margin-bottom: 20px; line-height: 1.7; }
   .summary { margin-top: 12px; font-size: 14px; }
   .follow { margin-top: 20px; padding-top: 18px; border-top: 1px solid #eef0f3; text-align: center; }
   .follow p { font-size: 14px; }
   .qrcode { display: block; width: 180px; height: 180px; margin: 12px auto 0; border-radius: 8px; }
+  body.editing-note { overflow: hidden; }
+  .editor-overlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
+         background: #fff; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .editor-overlay[hidden] { display: none; }
+  .editor-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+         border-bottom: 1px solid #eef0f3; }
+  .editor-title { flex: 1; font-size: 16px; font-weight: 600; }
+  .editor-count { font-size: 12px; color: #8f959e; }
+  .editor-done { border: none; border-radius: 6px; background: #00b96b; color: #fff;
+         padding: 7px 14px; font-size: 14px; cursor: pointer; }
+  .editor-overlay textarea { flex: 1; align-self: stretch; width: auto; margin: 12px 16px 16px;
+         padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; font-size: 16px;
+         line-height: 1.6; resize: none; overflow-y: auto; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>产品试用预约</h1>
+    <h1>${escapeHTML(typeConfig.title)}</h1>
     ${productHeader}
     <p class="sub" id="subtitle">请留下您的信息，我们会尽快与您联系</p>
     <section id="returningActions" class="returning" hidden>
@@ -118,15 +157,31 @@ function renderReservationPage(
       <label>联系电话<span class="req">*</span></label>
       <input name="phone" type="tel" maxlength="20" placeholder="请填写手机号" required>
       <label>说明 / 建议</label>
-      <textarea name="note" maxlength="500" placeholder="（选填）想试用的产品、场景或特殊需求等"></textarea>
+      <div class="note-field">
+        <textarea name="note" id="noteField" class="note" maxlength="500" rows="3" placeholder="（选填）产品、场景或特殊需求"></textarea>
+        <button type="button" class="note-expand" id="noteExpandBtn" aria-label="展开全屏编辑说明 / 建议" title="全屏编辑" hidden>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
       <div class="hint">最多 500 字</div>
-      <p id="revisionHint" class="hint" hidden>保存后将更新此设备显示的最新预约信息，之前提交的记录仍会保留。</p>
+      ${noticeBlock}
       <button class="btn" type="submit" id="submitBtn">提交预约</button>
       <p id="saveStateHint" class="hint" hidden></p>
       <div class="err" id="errMsg" role="alert"></div>
-      <p class="privacy">提交即表示您同意我们仅将以上信息用于本次试用安排与联系。信息不会被分享给第三方，您可以随时联系我们删除。</p>
+      <p class="privacy">提交即表示您同意我们仅将以上信息用于本次${typeConfig.privacyVerb}安排与联系。信息不会被分享给第三方，您可以随时联系我们删除。</p>
     </form>
   </div>
+</div>
+
+<div class="editor-overlay" id="noteEditor" role="dialog" aria-modal="true" aria-label="编辑说明 / 建议" hidden>
+  <div class="editor-head">
+    <span class="editor-title">说明 / 建议</span>
+    <span class="editor-count" id="noteEditorCount">0/500</span>
+    <button type="button" class="editor-done" id="noteEditorDone">完成</button>
+  </div>
+  <textarea id="noteEditorInput" maxlength="500" placeholder="（选填）产品、场景或特殊需求"></textarea>
 </div>
 
 <script>
@@ -137,9 +192,15 @@ function renderReservationPage(
   var returningActions = document.getElementById('returningActions');
   var successState = document.getElementById('successState');
   var formTitle = document.getElementById('formTitle');
-  var revisionHint = document.getElementById('revisionHint');
   var saveStateHint = document.getElementById('saveStateHint');
   var subtitle = document.getElementById('subtitle');
+  var noteField = document.getElementById('noteField');
+  var noteExpandBtn = document.getElementById('noteExpandBtn');
+  var noteEditor = document.getElementById('noteEditor');
+  var noteEditorInput = document.getElementById('noteEditorInput');
+  var noteEditorCount = document.getElementById('noteEditorCount');
+  var noteEditorDone = document.getElementById('noteEditorDone');
+  var RESERVATION_TYPE = ${JSON.stringify(typeConfig.key)};
   var latestReservation = null;
   var accessToken = null;
   var formMode = 'create';
@@ -151,8 +212,47 @@ function renderReservationPage(
     errMsg.style.display = 'block';
   }
 
+  // The expand button mirrors WeChat: it appears when the note no longer fits
+  // the compact three-line box, and opens a near-full-screen editor.
+  function updateNoteExpand() {
+    if (!noteExpandBtn || !noteField) return;
+    noteExpandBtn.hidden = noteField.scrollHeight <= noteField.clientHeight + 1;
+    // Only reserve space for the icon while it is visible, so normal text keeps
+    // the full line width.
+    if (noteField.parentNode) {
+      noteField.parentNode.classList.toggle('has-expand', !noteExpandBtn.hidden);
+    }
+  }
+
+  function updateNoteCount() {
+    if (noteEditorCount) noteEditorCount.textContent = noteEditorInput.value.length + '/500';
+  }
+
+  function openNoteEditor() {
+    noteEditorInput.value = noteField.value;
+    updateNoteCount();
+    noteEditor.hidden = false;
+    document.body.classList.add('editing-note');
+    noteEditorInput.focus();
+    var end = noteEditorInput.value.length;
+    noteEditorInput.setSelectionRange(end, end);
+  }
+
+  function closeNoteEditor() {
+    noteEditor.hidden = true;
+    document.body.classList.remove('editing-note');
+    updateNoteExpand();
+    noteField.focus();
+  }
+
+  function revealForm() {
+    form.hidden = false;
+    updateNoteExpand();
+  }
+
   function currentFormData() {
     return {
+      type: RESERVATION_TYPE,
       hospital: form.hospital.value.trim(),
       department: form.department.value,
       product: form.product.value,
@@ -242,7 +342,6 @@ function renderReservationPage(
     form.reset();
     formTitle.textContent = usePrevious ? '修改上次预约' : '新建预约';
     submitBtn.textContent = usePrevious ? '保存修改' : '提交预约';
-    revisionHint.hidden = !usePrevious;
     if (usePrevious && latestReservation) {
       form.hospital.value = latestReservation.hospital;
       form.department.value = latestReservation.department;
@@ -260,6 +359,7 @@ function renderReservationPage(
       }
     }
     errMsg.style.display = 'none';
+    updateNoteExpand();
     updateSubmitState();
     form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -301,16 +401,16 @@ function renderReservationPage(
       try {
         accessToken = localStorage.getItem('trialReservationAccessToken');
       } catch (_) {
-        form.hidden = false;
+        revealForm();
         showError('此浏览器无法读取预约访问凭证，请检查浏览器存储设置。');
         return;
       }
     }
     if (!accessToken) {
-      form.hidden = false;
+      revealForm();
       return;
     }
-    fetch('api/reservations', {
+    fetch('api/reservations?type=' + encodeURIComponent(RESERVATION_TYPE), {
       headers: { Authorization: 'Bearer ' + accessToken }
     }).then(function (response) {
       return response.json().then(function (body) {
@@ -319,7 +419,7 @@ function renderReservationPage(
     }).then(function (result) {
       if (result.status === 401) {
         var tokenCleared = clearAccessToken();
-        form.hidden = false;
+        revealForm();
         showError('访问凭证已过期（连续 30 天未成功访问）。原预约记录仍保留，但无法通过此凭证查看；您可以重新创建预约。' +
           (tokenCleared ? '' : ' 无法清除浏览器中的旧凭证，请清理此网站的浏览器数据。'));
         return;
@@ -327,9 +427,9 @@ function renderReservationPage(
       if (!result.body.ok) throw new Error('Unable to load reservations');
       var latest = result.body.reservations[0];
       if (latest) showReturningActions(latest);
-      else form.hidden = false;
+      else revealForm();
     }).catch(function () {
-      form.hidden = false;
+      revealForm();
       showError('暂时无法读取此设备的预约记录，请稍后重试。');
     });
   }
@@ -411,7 +511,7 @@ function renderReservationPage(
     }).finally(function () {
       submitting = false;
       if (submitBtn.textContent === '提交中…') {
-        submitBtn.textContent = revisionHint.hidden ? '提交预约' : '保存修改';
+        submitBtn.textContent = formMode === 'edit' ? '保存修改' : '提交预约';
       }
       updateSubmitState();
     });
@@ -419,6 +519,20 @@ function renderReservationPage(
 
   form.addEventListener('input', updateSubmitState);
   form.addEventListener('change', updateSubmitState);
+  if (noteExpandBtn) noteExpandBtn.addEventListener('click', openNoteEditor);
+  if (noteEditorInput) {
+    noteEditorInput.addEventListener('input', function () {
+      noteField.value = noteEditorInput.value;
+      updateNoteCount();
+      updateSubmitState();
+    });
+  }
+  if (noteEditorDone) noteEditorDone.addEventListener('click', closeNoteEditor);
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && noteEditor && !noteEditor.hidden) closeNoteEditor();
+  });
+  if (noteField) noteField.addEventListener('input', updateNoteExpand);
+  window.addEventListener('resize', updateNoteExpand);
 
   loadReservations(true);
 })();

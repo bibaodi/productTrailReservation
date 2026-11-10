@@ -13,12 +13,13 @@ const { DEFAULT_DEPARTMENTS, DEFAULT_PRODUCTS, DEFAULT_QR_CAPTION } = require('.
 test('reservation API URLs remain relative to a deployed subpath', () => {
   const html = renderReservationPage(['内科']);
   assert.match(html, /'api\/reserve'/);
-  assert.match(html, /fetch\('api\/reservations'/);
+  assert.match(html, /fetch\('api\/reservations\?type=' \+ encodeURIComponent\(RESERVATION_TYPE\)/);
   assert.match(html, /id="viewPreviousBtn">查看上次预约信息/);
   assert.match(html, /id="createNewBtn">创建新的预约/);
   assert.match(html, /formTitle\.textContent = usePrevious \? '修改上次预约' : '新建预约'/);
   assert.match(html, /submitBtn\.textContent = usePrevious \? '保存修改' : '提交预约'/);
-  assert.match(html, /id="revisionHint" class="hint" hidden>保存后将更新此设备显示的最新预约信息，之前提交的记录仍会保留。/);
+  assert.doesNotMatch(html, /保存后将更新此设备显示的最新预约信息/);
+  assert.doesNotMatch(html, /id="revisionHint"/);
   assert.match(html, /id="successHospital"/);
   assert.match(html, /id="successName"/);
   assert.match(html, /<p class="sub" id="subtitle">请留下您的信息，我们会尽快与您联系<\/p>/);
@@ -117,10 +118,49 @@ test('settings page escapes stored values and embeds a CSRF token', () => {
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(html, /name="departments"[^>]*>科室A\n科室B<\/textarea>/);
   assert.match(html, /name="products"[^>]*>产品A\n产品B<\/textarea>/);
+  assert.match(html, /name="demo_products"[^>]*>住院医师规范化培训系统<\/textarea>/);
+  assert.match(html, /name="demo_notice"[^>]*>预约产品演示/);
   assert.match(html, /name="csrf" value="token\+&quot;value"/);
   assert.match(html, /method="post" action=""/);
   assert.match(html, /<a class="tab" href="\.\.\/admin">Reservations<\/a>/);
   assert.match(html, /<a class="tab active" href="settings" aria-current="page">Settings<\/a>/);
+});
+
+test('the demo page uses its own title, product label, and attention text', () => {
+  const notice = '预约产品演示, 本系统不提供试用, 可备注业务场景, 我们针对性演示.';
+  const html = renderReservationPage(['内科'], {
+    type: 'demo',
+    products: ['住院医师规范化培训系统'],
+    noteNotice: notice,
+  });
+  assert.match(html, /<h1>产品演示预约<\/h1>/);
+  assert.match(html, /<title>住院医师规范化培训系统 - 产品演示预约<\/title>/);
+  assert.match(html, /演示产品：<strong>住院医师规范化培训系统<\/strong>/);
+  assert.match(html, new RegExp(
+    '<p class="note-notice" id="noteNotice"><strong>' + notice + '</strong></p>',
+  ));
+  assert.match(html, /var RESERVATION_TYPE = "demo"/);
+  assert.match(html, /本次演示安排/);
+  // The note is never pre-filled; the notice is a separate callout.
+  assert.match(html, /<textarea name="note"[^>]*><\/textarea>/);
+
+  const trial = renderReservationPage(['内科'], { noteNotice: notice });
+  assert.match(trial, /<h1>产品试用预约<\/h1>/);
+  assert.doesNotMatch(trial, /noteNotice/);
+  assert.doesNotMatch(trial, /预约产品演示/);
+});
+
+test('the note box offers a near-full-screen editor when text overflows', () => {
+  const html = renderReservationPage(['内科']);
+  assert.match(html, /id="noteField"/);
+  assert.match(html, /id="noteExpandBtn"/);
+  assert.match(html, /id="noteEditor" role="dialog" aria-modal="true"/);
+  assert.match(html, /id="noteEditorInput" maxlength="500"/);
+  assert.match(html, /noteExpandBtn\.hidden = noteField\.scrollHeight <= noteField\.clientHeight \+ 1/);
+  assert.match(html, /noteEditor\.hidden = false/);
+  assert.match(html, /document\.body\.classList\.add\('editing-note'\)/);
+  assert.match(html, /noteField\.value = noteEditorInput\.value/);
+  assert.match(html, /event\.key === 'Escape'/);
 });
 
 test('admin export and pagination preserve a deployed subpath and filters', () => {
@@ -129,11 +169,14 @@ test('admin export and pagination preserve a deployed subpath and filters', () =
     hospital: 'Clinic',
     department: '内科',
     product: '产品A',
+    type: 'demo',
     from: '2026-01-01',
     to: '2026-01-31',
     page: 1,
   };
-  const html = renderAdminPage({ rows: [], total: 0, page: 1, pages: 1 }, filters);
+  const html = renderAdminPage({ rows: [], total: 0, page: 1, pages: 1 }, filters, {
+    products: ['产品A', '产品B'],
+  });
   const exportHref = html.match(/href="(admin\/export\.csv[^"]*)"/)[1]
     .replaceAll('&amp;', '&');
   assert.equal(
@@ -143,8 +186,13 @@ test('admin export and pagination preserve a deployed subpath and filters', () =
   assert.match(exportHref, /name=Alice/);
   assert.match(exportHref, /department=%E5%86%85%E7%A7%91/);
   assert.match(exportHref, /product=%E4%BA%A7%E5%93%81A/);
+  assert.match(exportHref, /type=demo/);
   assert.match(html, /class="button-link" href="admin\/export\.csv/);
-  assert.match(html, /<th>Product<\/th>/);
+  assert.match(html, /<select name="product">/);
+  assert.match(html, /<option value="产品A" selected>产品A<\/option>/);
+  assert.match(html, /<select name="type">/);
+  assert.match(html, /<option value="demo" selected>演示<\/option>/);
+  assert.match(html, /<th>Type<\/th>/);
   assert.match(html, /Page 1 of 1; 100 per page/);
   assert.match(html, /<a class="tab active" href="admin" aria-current="page">Reservations<\/a>/);
   assert.match(html, /<a class="tab" href="admin\/settings">Settings<\/a>/);

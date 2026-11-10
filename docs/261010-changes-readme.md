@@ -2,6 +2,41 @@
 
 This document records project updates, including changes made after 2026-10-10.
 
+## 2026-11-10 — Demo reservation type
+
+The application now serves two reservation types. `/` (or `/?type=trial`)
+keeps the trial page, and `/?type=demo` renders a demo page titled
+`产品演示预约`. Each type has its own configurable product list and its own
+browser-visible reservation history, so a returning user on one page does not
+see the other type's record.
+
+New defaults:
+
+- Demo products: `住院医师规范化培训系统`
+- Demo attention text: `预约产品演示, 本系统不提供试用, 可备注业务场景, 我们针对性演示.`
+
+The demo attention text is shown as a bold highlighted callout below the
+`说明 / 建议` hint. It is a static instruction, not pre-filled note content.
+Both demo settings are editable in `/admin/settings`.
+
+The note box stays compact at three lines. When the content overflows, a
+small expand icon appears in the note box and opens a near-full-screen editor
+with a character counter; edits are synchronized back to the form.
+
+Storage and admin changes:
+
+- `trialreservations.type` records `trial` or `demo`; existing rows default to
+  `trial`.
+- `GET /api/reservations` accepts `type` and returns only that type's latest
+  record for the device token.
+- The admin page replaces the product text filter with a dropdown listing
+  configured products and products already recorded, and adds a type filter,
+  a Type column, and a Type column in the CSV export.
+- WeCom notifications start with `新的试用预约` or `新的演示预约`.
+
+Code additions include `src/reservation-types.js` for the per-type
+configuration and a matching migration in `src/database.js`.
+
 ## 2026-10-29 — Configurable products and success-page caption
 
 The reservation form now includes a required product selector. The product

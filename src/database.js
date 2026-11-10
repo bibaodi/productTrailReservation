@@ -10,6 +10,8 @@ function initializeDatabase(db) {
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       hospital    TEXT NOT NULL,
       department  TEXT,
+      product     TEXT,
+      type        TEXT NOT NULL DEFAULT 'trial',
       name        TEXT NOT NULL,
       phone       TEXT NOT NULL,
       note        TEXT,
@@ -36,12 +38,18 @@ function initializeDatabase(db) {
   if (!columns.some((column) => column.name === 'product')) {
     db.exec('ALTER TABLE trialreservations ADD COLUMN product TEXT');
   }
+  if (!columns.some((column) => column.name === 'type')) {
+    // Existing reservations predate the demo page and remain trial records.
+    db.exec("ALTER TABLE trialreservations ADD COLUMN type TEXT NOT NULL DEFAULT 'trial'");
+  }
 
   migrateLegacySettings(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_trialreservations_device_token
       ON trialreservations(device_token_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_trialreservations_device_type
+      ON trialreservations(device_token_id, type, id DESC);
     CREATE INDEX IF NOT EXISTS idx_trialreservations_created_at
       ON trialreservations(created_at);
   `);

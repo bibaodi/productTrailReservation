@@ -1,5 +1,7 @@
 'use strict';
 
+const { getReservationType } = require('./reservation-types');
+
 const MARKDOWN_REPLACEMENTS = Object.freeze({
   '&': '＆',
   '<': '＜',
@@ -39,11 +41,12 @@ function createWeComNotifier(webhookURL, fetchImpl = fetch) {
       Object.entries(data).map(([key, value]) =>
         [key, escapeMarkdown(value == null ? '' : String(value))])
     );
+    const heading = getReservationType(data.type).notificationTitle;
     const payload = JSON.stringify({
       msgtype: 'markdown',
       markdown: {
         content:
-          '**新的试用预约**\n' +
+          '**' + heading + '**\n' +
           '> 医院：' + safe.hospital + '\n' +
           '> 科室：' + safe.department + '\n' +
           (safe.product ? '> 产品：' + safe.product + '\n' : '') +

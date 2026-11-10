@@ -7,6 +7,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { openDatabase } = require('../src/database');
 const {
+  DEFAULT_DEMO_NOTICE,
+  DEFAULT_DEMO_PRODUCTS,
   DEFAULT_DEPARTMENTS,
   DEFAULT_PRODUCTS,
   DEFAULT_QR_CAPTION,
@@ -30,15 +32,21 @@ test('returns built-in defaults when nothing has been configured or values are c
       qrCaption: DEFAULT_QR_CAPTION,
       departments: DEFAULT_DEPARTMENTS.slice(),
       products: DEFAULT_PRODUCTS.slice(),
+      demoProducts: DEFAULT_DEMO_PRODUCTS.slice(),
+      demoNotice: DEFAULT_DEMO_NOTICE,
     });
 
     db.prepare("INSERT INTO settings (key, value) VALUES ('departments', ?)").run('[]');
     db.prepare("INSERT INTO settings (key, value) VALUES ('products', ?)").run('{broken');
+    db.prepare("INSERT INTO settings (key, value) VALUES ('demo_products', ?)").run('{broken');
     db.prepare("INSERT INTO settings (key, value) VALUES ('qr_caption', ?)").run('坏\u0007字符');
+    db.prepare("INSERT INTO settings (key, value) VALUES ('demo_notice', ?)").run('坏\u0007字符');
     assert.deepEqual(getSettings(db), {
       qrCaption: DEFAULT_QR_CAPTION,
       departments: DEFAULT_DEPARTMENTS.slice(),
       products: DEFAULT_PRODUCTS.slice(),
+      demoProducts: DEFAULT_DEMO_PRODUCTS.slice(),
+      demoNotice: DEFAULT_DEMO_NOTICE,
     });
   });
 });
@@ -70,11 +78,15 @@ test('normalizes, saves, and reloads settings', () => {
       qrCaption: '  关注公众号  ',
       departments: '  内科 \r\n外科\n内科\n\n',
       products: '  产品A \r\n产品B\n产品A\n\n',
+      demoProducts: '  演示产品A \r\n演示产品B\n演示产品A\n\n',
+      demoNotice: '  演示提示  ',
     });
     assert.deepEqual(validation.ok, {
       qrCaption: '关注公众号',
       departments: ['内科', '外科'],
       products: ['产品A', '产品B'],
+      demoProducts: ['演示产品A', '演示产品B'],
+      demoNotice: '演示提示',
     });
     saveSettings(db, validation.ok);
     assert.deepEqual(getSettings(db), validation.ok);
@@ -83,6 +95,8 @@ test('normalizes, saves, and reloads settings', () => {
       qrCaption: '   ', departments: '科室C', products: '产品C',
     });
     assert.equal(reset.ok.qrCaption, DEFAULT_QR_CAPTION);
+    assert.deepEqual(reset.ok.demoProducts, DEFAULT_DEMO_PRODUCTS.slice());
+    assert.equal(reset.ok.demoNotice, DEFAULT_DEMO_NOTICE);
   });
 });
 
@@ -105,6 +119,12 @@ test('rejects unsafe or oversized settings', () => {
     { qrCaption: 'ok', departments, products: 'bad\u0000product' },
     { qrCaption: 'ok', departments, products: Array.from({ length: 51 }, (_, i) => '产品' + i).join('\n') },
     { qrCaption: 'ok', departments, products: [42] },
+    { qrCaption: 'ok', departments, products: 'A', demoProducts: '' },
+    { qrCaption: 'ok', departments, products: 'A', demoProducts: '\n\n' },
+    { qrCaption: 'ok', departments, products: 'A', demoProducts: longProduct },
+    { qrCaption: 'ok', departments, products: 'A', demoProducts: 'bad\u0000product' },
+    { qrCaption: 'ok', departments, products: 'A', demoNotice: 'x'.repeat(501) },
+    { qrCaption: 'ok', departments, products: 'A', demoNotice: 'bad\nnotice' },
   ]) {
     assert.ok(validateSettings(input).err, JSON.stringify(input));
   }

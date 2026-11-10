@@ -10,8 +10,12 @@ dependencies.
 
 ## Features
 
+- Two reservation types selected by URL: the default trial page at `/` and a
+  demo page at `/?type=demo`. Each type has its own title, product list, and
+  browser history.
 - Mobile-friendly reservation form for hospitals, departments, products,
-  contacts, and optional notes.
+  contacts, and optional notes. The note box opens a near-full-screen editor
+  when the text no longer fits its compact three-line size.
 - Server-side input validation and per-IP submission rate limiting.
 - Browser-specific retrieval of the latest reservation, with access tokens
   that expire after 30 days without successful access.
@@ -20,9 +24,11 @@ dependencies.
 - SQLite storage for reservation records and site settings.
 - Password-protected admin page with pagination, text search, date filters, and
   filtered CSV export.
-- Password-protected settings page for the department list, product list, and
-  the text shown above the WeChat QR code on the success page.
-- Optional notifications to a WeCom group bot.
+- Password-protected settings page for the department list, product lists for
+  both reservation types, the demo attention text, and the text shown above the
+  WeChat QR code on the success page.
+- Admin product and type filters, with the product filter shown as a dropdown.
+- Optional notifications to a WeCom group bot, labeled by reservation type.
 - Docker deployment with persistent database storage.
 
 ## Requirements
@@ -42,6 +48,23 @@ node src/server.js
 The application listens on `127.0.0.1:8787` by default and creates
 `trialreservations.db` in the current directory. Open
 `http://127.0.0.1:8787/` to use the reservation form.
+
+### Reservation types
+
+| URL | Type | Default title | Default product |
+| --- | --- | --- | --- |
+| `/` or `/?type=trial` | trial | 产品试用预约 | 超声探头隔离膜智换系统 |
+| `/?type=demo` | demo | 产品演示预约 | 住院医师规范化培训系统 |
+
+Each type has its own product list and browser history. The demo page also
+shows a bold, highlighted attention text below the note hint. Both product
+lists and the attention text are editable at `/admin/settings`. Any other
+`type` value returns 404. Older pages that submit without a `type` field are
+treated as trial.
+
+The note box is three lines tall. When the text overflows, an expand button
+appears and opens a near-full-screen editor; the text is synchronized back to
+the form.
 
 ## Run with Docker Compose
 

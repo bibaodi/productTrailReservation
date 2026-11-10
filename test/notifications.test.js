@@ -44,3 +44,35 @@ test('WeCom notification escapes untrusted content in every reservation field', 
   assert.match(message, /＋86 13812345678/);
   assert.match(message, /［open］（https：／／evil．test）/);
 });
+
+test('the notification heading follows the reservation type', () => {
+  let sent;
+  const notify = createWeComNotifier('https://webhook.test', (url, options) => {
+    sent = { url, options };
+    return Promise.resolve({ ok: true });
+  });
+  notify({
+    type: 'demo',
+    hospital: '医院',
+    department: '内科',
+    product: '住院医师规范化培训系统',
+    name: '王小明',
+    phone: '13812345678',
+    note: '',
+  });
+  const message = JSON.parse(sent.options.body).markdown.content;
+  assert.match(message, /^\*\*新的演示预约\*\*/);
+  assert.match(message, /产品：住院医师规范化培训系统/);
+
+  notify({
+    type: 'trial',
+    hospital: '医院',
+    department: '内科',
+    product: '产品A',
+    name: '王小明',
+    phone: '13812345678',
+    note: '',
+  });
+  const trialMessage = JSON.parse(sent.options.body).markdown.content;
+  assert.match(trialMessage, /^\*\*新的试用预约\*\*/);
+});

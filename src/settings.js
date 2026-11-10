@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEFAULT_DEMO_NOTICE, DEFAULT_DEMO_PRODUCTS } = require('./reservation-types');
+
 const DEFAULT_QR_CAPTION = '为了可以与我们保持联系，请您关注“即时超声”公众号';
 // The first release of this setting shipped with reversed quotation marks.
 // Rewrite that exact stored value once so existing deployments show the
@@ -13,6 +15,7 @@ const DEFAULT_DEPARTMENTS = Object.freeze([
 const DEFAULT_PRODUCTS = Object.freeze(['超声探头隔离膜智换系统']);
 
 const MAX_QR_CAPTION_LENGTH = 200;
+const MAX_DEMO_NOTICE_LENGTH = 500;
 const MAX_DEPARTMENTS = 50;
 const MAX_DEPARTMENT_LENGTH = 30;
 const MAX_PRODUCTS = 50;
@@ -88,7 +91,7 @@ function parseProductText(text) {
   return parseChoicesText(text, PRODUCT_RULES);
 }
 
-function validateSettings({ qrCaption, departments, products } = {}) {
+function validateSettings({ qrCaption, departments, products, demoProducts, demoNotice } = {}) {
   const caption = typeof qrCaption === 'string' ? qrCaption.trim() : '';
   if (CONTROL_CHARS.test(caption)) {
     return { err: 'The QR caption must not contain control characters.' };
@@ -107,12 +110,33 @@ function validateSettings({ qrCaption, departments, products } = {}) {
     : normalizeProducts(products);
   if (parsedProducts.err) return parsedProducts;
 
+  // Older forms do not carry the demo fields; keep the current defaults rather
+  // than failing an otherwise valid settings submission.
+  const parsedDemoProducts = demoProducts === undefined
+    ? { ok: DEFAULT_DEMO_PRODUCTS.slice() }
+    : typeof demoProducts === 'string'
+      ? parseProductText(demoProducts)
+      : normalizeProducts(demoProducts);
+  if (parsedDemoProducts.err) return parsedDemoProducts;
+
+  const notice = demoNotice === undefined ? DEFAULT_DEMO_NOTICE : demoNotice;
+  const demoNoticeText = typeof notice === 'string' ? notice.trim() : '';
+  if (typeof notice !== 'string' || CONTROL_CHARS.test(demoNoticeText)) {
+    return { err: 'The demo notice must be plain text without control characters.' };
+  }
+  if (demoNoticeText.length > MAX_DEMO_NOTICE_LENGTH) {
+    return { err: `The demo notice must be ${MAX_DEMO_NOTICE_LENGTH} characters or fewer.` };
+  }
+
   return {
     ok: {
       // An empty caption resets the page to the built-in default.
       qrCaption: caption || DEFAULT_QR_CAPTION,
       departments: parsedDepartments.ok,
       products: parsedProducts.ok,
+      demoProducts: parsedDemoProducts.ok,
+      // An empty demo notice resets to the built-in default text.
+      demoNotice: demoNoticeText || DEFAULT_DEMO_NOTICE,
     },
   };
 }
@@ -151,6 +175,15 @@ function getSettings(db) {
     }
   }
 
+  let demoNotice = DEFAULT_DEMO_NOTICE;
+  const storedDemoNotice = stored.get('demo_notice');
+  if (typeof storedDemoNotice === 'string') {
+    const notice = storedDemoNotice.trim();
+    if (notice && !CONTROL_CHARS.test(notice) && notice.length <= MAX_DEMO_NOTICE_LENGTH) {
+      demoNotice = notice;
+    }
+  }
+
   return {
     qrCaption,
     departments: readStoredList(
@@ -159,6 +192,10 @@ function getSettings(db) {
     products: readStoredList(
       stored, 'products', normalizeProducts, DEFAULT_PRODUCTS.slice(),
     ),
+    demoProducts: readStoredList(
+      stored, 'demo_products', normalizeProducts, DEFAULT_DEMO_PRODUCTS.slice(),
+    ),
+    demoNotice,
   };
 }
 
@@ -176,6 +213,8 @@ function saveSettings(db, settings) {
     upsert.run('qr_caption', settings.qrCaption);
     upsert.run('departments', JSON.stringify(settings.departments));
     upsert.run('products', JSON.stringify(settings.products));
+    upsert.run('demo_products', JSON.stringify(settings.demoProducts));
+    upsert.run('demo_notice', settings.demoNotice);
     db.exec('COMMIT');
     return settings;
   } catch (error) {
@@ -185,9 +224,12 @@ function saveSettings(db, settings) {
 }
 
 module.exports = {
+  DEFAULT_DEMO_NOTICE,
+  DEFAULT_DEMO_PRODUCTS,
   DEFAULT_DEPARTMENTS,
   DEFAULT_PRODUCTS,
   DEFAULT_QR_CAPTION,
+  MAX_DEMO_NOTICE_LENGTH,
   MAX_DEPARTMENTS,
   MAX_DEPARTMENT_LENGTH,
   MAX_DEPARTMENT_TEXT_LENGTH,

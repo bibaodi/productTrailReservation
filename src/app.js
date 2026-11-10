@@ -10,6 +10,7 @@ const { createWeComNotifier } = require('./notifications');
 const { QR_IMAGE_URL, renderReservationPage } = require('./pages');
 const { createRateLimiter } = require('./rate-limit');
 const { createReservation, listReservations } = require('./reservation-service');
+const { getReservationType, parseReservationType } = require('./reservation-types');
 const { validateInput } = require('./reservation-validation');
 const { getSettings } = require('./settings');
 
@@ -23,6 +24,13 @@ function clientIP(req) {
     if (net.isIP(candidate)) return candidate;
   }
   return req.socket.remoteAddress || 'unknown';
+}
+
+function productsForType(settings, type) {
+  const config = getReservationType(type);
+  return config.productsSetting === 'demo_products'
+    ? settings.demoProducts
+    : settings.products;
 }
 
 function createApp({
@@ -50,8 +58,15 @@ function createApp({
         return sendJSON(res, 200, { ok: true });
       }
       if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
+        const type = parseReservationType(url.searchParams.get('type'));
+        if (!type) return sendText(res, 404, 'Not Found');
         const settings = getSettings(db);
-        return sendText(res, 200, renderReservationPage(settings.departments, settings));
+        return sendText(res, 200, renderReservationPage(settings.departments, {
+          products: productsForType(settings, type),
+          qrCaption: settings.qrCaption,
+          type,
+          noteNotice: type === 'demo' ? settings.demoNotice : '',
+        }));
       }
       if (req.method === 'GET' && path === '/' + QR_IMAGE_URL) {
         res.writeHead(200, {
@@ -88,18 +103,24 @@ function createApp({
         } catch {
           return sendJSON(res, 401, { ok: false, message: 'Access token is invalid or expired.' });
         }
+        const type = parseReservationType(body && body.type);
+        if (!type) return sendJSON(res, 422, { ok: false, message: '预约类型无效' });
         const settings = getSettings(db);
-        const validation = validateInput(body, settings.products, settings.departments);
+        const validation = validateInput(
+          body,
+          productsForType(settings, type),
+          settings.departments,
+        );
         if (validation.err) return sendJSON(res, 422, { ok: false, message: validation.err });
 
         const result = createReservation(
           db,
-          validation.ok,
+          { ...validation.ok, type },
           String(req.headers['user-agent'] || ''),
           token,
           now(),
         );
-        notify(validation.ok);
+        notify({ ...validation.ok, type });
         return sendJSON(res, 200, {
           ok: true,
           id: result.id,
@@ -115,7 +136,9 @@ function createApp({
           return sendJSON(res, 401, { ok: false, message: 'Access token is invalid or expired.' });
         }
         if (!token) return sendJSON(res, 401, { ok: false, message: 'Access token is required.' });
-        const result = listReservations(db, token, now());
+        const type = parseReservationType(url.searchParams.get('type'));
+        if (!type) return sendJSON(res, 400, { ok: false, message: '预约类型无效' });
+        const result = listReservations(db, token, now(), type);
         if (!result) return sendJSON(res, 401, { ok: false, message: 'Access token is invalid or expired.' });
         return sendJSON(res, 200, {
           ok: true,

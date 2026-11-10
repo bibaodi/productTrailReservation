@@ -11,7 +11,7 @@ const ADMIN_STYLES = `
   .tab.active { color: #007a52; border-bottom-color: #008a52; font-weight: 600; }
   .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 16px 0; }
   .filters label { display: grid; gap: 4px; font-size: 13px; }
-  input, button { padding: 8px; }
+  input, select, button { padding: 8px; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; }
   th, td { border: 1px solid #e5e6eb; padding: 8px 10px; text-align: left; word-break: break-word; }
   th { background: #f7f8fa; }
